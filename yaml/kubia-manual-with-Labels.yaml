@@ -11,4 +11,4 @@ spec:
     name: kubia
     ports:
     - containerPort: 8080
-      protoclol: TCP
+      protocol: TCP

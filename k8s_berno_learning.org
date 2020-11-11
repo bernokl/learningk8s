@@ -128,5 +128,106 @@ The avove is really handy it gives you access from your local network to a pod
       name: kubia
       ports:
       - containerPort: 8080
-        protoclol: TCP
+        protocol: TCP
 #+end_src
+
+Tangled  the above out, just for nerdness lets confirm
+#+begin_src shell :results value verbatim
+head  /Users/bernokl/projects/k8sInAction/yaml/kubia-manual-with-Labels.yaml
+#+end_src
+
+#+RESULTS:
+#+begin_example
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kubia-manual-v2
+  labels:
+    creation_method: manual
+    env: prod
+spec:
+  containers:
+  - image: bernokl/kubia
+#+end_example
+
+
+OK, lets go apply that sucker
+#+begin_src shell
+kubectl create -f yaml/kubia-manual-with-labels.yaml
+#+end_src
+
+#+RESULTS:
+: pod/kubia-manual-v2 created
+
+Should we have 3 pods now?
+#+begin_src shell :results value verbatim
+kubectl get pods -n default 
+#+end_src
+
+#+RESULTS:
+: NAME              READY   STATUS    RESTARTS   AGE
+: kubia-4lp4r       1/1     Running   0          7d18h
+: kubia-manual      1/1     Running   0          10h
+: kubia-manual-v2   1/1     Running   0          76s
+
+Whoop, k lets go look at the labels
+#+begin_src shell :results value verbatim
+kubectl get po --show-labels -n default 
+#+end_src
+
+#+RESULTS:
+: NAME              READY   STATUS    RESTARTS   AGE     LABELS
+: kubia-4lp4r       1/1     Running   0          7d18h   app=kubia
+: kubia-manual      1/1     Running   0          10h     <none>
+: kubia-manual-v2   1/1     Running   0          2m28s   creation_method=manual,env=prod
+
+It is also possibel to organize the layout for label values
+#+begin_src shell :results value verbatim
+kubectl get pods -L creation_method,env 
+#+end_src
+
+#+RESULTS:
+: NAME              READY   STATUS    RESTARTS   AGE     CREATION_METHOD   ENV
+: kubia-4lp4r       1/1     Running   0          7d19h                     
+: kubia-manual      1/1     Running   0          10h                       
+: kubia-manual-v2   1/1     Running   0          5m29s   manual            prod
+
+Lets go update labels of our running pod
+#+begin_src shell :results value verbatim
+kubectl label po kubia-manual creation_method=manual 
+#+end_src
+
+#+RESULTS:
+: pod/kubia-manual labeled
+
+ok lets go see what that label looks like
+#+begin_src shell :results value verbatim
+kubectl get pods -L creation_method,env 
+#+end_src
+
+#+RESULTS:
+: NAME              READY   STATUS    RESTARTS   AGE     CREATION_METHOD   ENV
+: kubia-4lp4r       1/1     Running   0          7d19h                     
+: kubia-manual      1/1     Running   0          10h     manual            
+: kubia-manual-v2   1/1     Running   0          24s     manual            prod
+
+Nice!
+
+Lets go overwrite an existing label say change env to prod for v2
+#+begin_src shell :results value verbatim
+kubectl label po kubia-manual-v2 env=debug --overwrite 
+#+end_src
+
+#+RESULTS:
+: pod/kubia-manual-v2 labeled
+
+ok lets go see what that label looks like
+#+begin_src shell :results value verbatim
+kubectl get pods -L creation_method,env 
+#+end_src
+
+#+RESULTS:
+: NAME              READY   STATUS    RESTARTS   AGE     CREATION_METHOD   ENV
+: kubia-4lp4r       1/1     Running   0          7d19h                     
+: kubia-manual      1/1     Running   0          10h     manual            
+: kubia-manual-v2   1/1     Running   0          45s     manual            debug
