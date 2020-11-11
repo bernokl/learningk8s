@@ -306,3 +306,124 @@ kubectl create -f yaml/kubia-fun.yaml
 #+RESULTS:
 : pod/kubia-fun created
 
+#+begin_src shell :results value verbatim 
+kubectl get nodes --show-labels
+#+end_src 
+
+#+RESULTS:
+: NAME       STATUS   ROLES    AGE   VERSION   LABELS
+: minikube   Ready    master   83d   v1.18.3   beta.kubernetes.io/arch=amd64,beta.kubernetes.io/os=linux,fun=true,kubernetes.io/arch=amd64,kubernetes.io/hostname=minikube,kubernetes.io/os=linux,minikube.k8s.io/commit=2243b4b97c131e3244c5f014faedca0d846599f5,minikube.k8s.io/name=minikube,minikube.k8s.io/updated_at=2020_08_20T10_14_48_0700,minikube.k8s.io/version =v1.12.3,node-role.kubernetes.io/master=
+
+
+#+begin_src bash
+kubectl get po -n default
+#+end_src
+
+#+RESULTS:
+| NAME            | READY | STATUS  | RESTARTS | AGE   |
+| kubia-4lp4r     | 1/1   | Running |        0 | 7d20h |
+| kubia-fun       | 1/1   | Running |        0 | 23m   |
+| kubia-manual    | 1/1   | Running |        0 | 11h   |
+| kubia-manual-v2 | 1/1   | Running |        0 | 61m   |
+
+ 
+* Anotations
+  Very handy, we can use them to add metadata, they are not meant to be used to sort on like labels, but rather provide info
+#+begin_src shell :results value verbatim 
+  kubectl get po kubia-manual -o yaml > tmp
+  head tmp
+  rm tmp
+#+end_src
+
+#+RESULTS:
+#+begin_example
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: "2020-11-11T09:54:20Z"
+  labels:
+    creation_method: manual
+  managedFields:
+  - apiVersion: v1
+    fieldsType: FieldsV1
+    fieldsV1:
+#+end_example
+
+Ok the guy above has no annotations, lets add one
+#+begin_src shell :results value verbatim
+kubectl annotate pod kubia-manual bernokl.com/letsaddanotation="interesting facts" 
+#+end_src
+
+#+RESULTS:
+: pod/kubia-manual annotated
+
+
+#+begin_src shell :results value verbatim 
+  kubectl get po kubia-manual -o yaml > tmp
+  head tmp
+  rm tmp
+#+end_src
+
+#+RESULTS:
+#+begin_example
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    bernokl.com/letsaddanotation: interesting facts
+  creationTimestamp: "2020-11-11T09:54:20Z"
+  labels:
+    creation_method: manual
+  managedFields:
+  - apiVersion: v1
+#+end_example
+ 
+Lets describe it
+#+begin_src shell :results verbatim 
+kubectl describe pod kubia-manual
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Name:         kubia-manual
+Namespace:    default
+Priority:     0
+Node:         minikube/192.168.64.2
+Start Time:   Wed, 11 Nov 2020 22:54:20 +1300
+Labels:       creation_method=manual
+Annotations:  bernokl.com/letsaddanotation: interesting facts
+Status:       Running
+IP:           172.17.0.9
+IPs:
+  IP:  172.17.0.9
+Containers:
+  kubia:
+    Container ID:   docker://f2febbb9016aeb839478ce1869b88dfa8228d3b4ec5edf646898bd5d9fb21d2a
+    Image:          bernokl/kubia
+    Image ID:       docker-pullable://bernokl/kubia@sha256:13f94084a4515abf331b5a9e751e355964624124c52755a6589abde31afd5c64
+    Port:           8080/TCP
+    Host Port:      0/TCP
+    State:          Running
+      Started:      Wed, 11 Nov 2020 22:54:27 +1300
+    Ready:          True
+    Restart Count:  0
+    Environment:    <none>
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from default-token-xnktg (ro)
+Conditions:
+  Type              Status
+  Initialized       True 
+  Ready             True 
+  ContainersReady   True 
+  PodScheduled      True 
+Volumes:
+  default-token-xnktg:
+    Type:        Secret (a volume populated by a Secret)
+    SecretName:  default-token-xnktg
+    Optional:    false
+QoS Class:       BestEffort
+Node-Selectors:  <none>
+Tolerations:     node.kubernetes.io/not-ready:NoExecute for 300s
+                 node.kubernetes.io/unreachable:NoExecute for 300s
+Events:          <none>
+#+end_example
