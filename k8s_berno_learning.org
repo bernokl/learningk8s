@@ -427,3 +427,187 @@ Tolerations:     node.kubernetes.io/not-ready:NoExecute for 300s
                  node.kubernetes.io/unreachable:NoExecute for 300s
 Events:          <none>
 #+end_example
+
+
+* Name spaces
+Lets see what namespaces we have
+#+begin_src shell :results verbatim
+kubectl get ns 
+#+end_src
+
+#+RESULTS:
+: NAME                   STATUS   AGE
+: default                Active   84d
+: kube-node-lease        Active   84d
+: kube-public            Active   84d
+: kube-system            Active   84d
+: kubernetes-dashboard   Active   7d20h
+
+Lets look to see what we can find in kube-system
+#+begin_src shell :results verbatim 
+kubectl get po --namespace kube-system
+#+end_src
+
+#+RESULTS:
+#+begin_example
+NAME                                        READY   STATUS      RESTARTS   AGE
+coredns-66bff467f8-96gv4                    1/1     Running     1          84d
+etcd-minikube                               1/1     Running     0          8d
+ingress-nginx-admission-create-fpcvv        0/1     Completed   0          84d
+ingress-nginx-admission-patch-6qfcz         0/1     Completed   0          84d
+ingress-nginx-controller-799dcd5d57-cmd68   1/1     Running     0          8d
+kube-apiserver-minikube                     1/1     Running     1          84d
+kube-controller-manager-minikube            1/1     Running     1          84d
+kube-proxy-d892r                            1/1     Running     1          84d
+kube-scheduler-minikube                     1/1     Running     1          84d
+registry-65xp4                              1/1     Running     1          84d
+registry-proxy-dqn2b                        1/1     Running     1          84d
+storage-provisioner                         1/1     Running     5          84d
+#+end_example
+
+Lets create a new namespace using a yaml file
+#+begin_src yaml :tangle yaml/custom-namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: custom-namespace
+#+end_src
+
+Two easy ways to create it, run the file above or even better just run `kubectl create namespace`
+#+begin_src shell :results raw
+  #kubectl create -f yaml/custom-namespace.yaml
+  kubectl delete namespace custom-namespace2
+#+end_src
+
+#+RESULTS:
+namespace "custom-namespace2" deleted
+namespace/custom-namespace2 created
+namespace/custom-namespace created
+
+NO DOTS IN NAMESPACE NAMES
+
+To create someting in ns simply add namespace: to the metadata of the pod.yaml or identify it in line
+#+begin_src shell :results raw
+kubectl create -f yaml/kubia-manual.yaml -n custom-namespace 
+#+end_src
+
+#+RESULTS:
+pod/kubia-manual created
+
+#+begin_src shell :results raw
+kubectl get pods -A
+#+end_src
+
+#+RESULTS:
+NAMESPACE              NAME                                        READY   STATUS      RESTARTS   AGE
+custom-namespace       kubia-manual                                1/1     Running     0          2m11s
+default                kubia-4lp4r                                 1/1     Running     0          7d21h
+default                kubia-fun                                   1/1     Running     0          125m
+default                kubia-manual                                1/1     Running     0          13h
+default                kubia-manual-v2                             1/1     Running     0          163m
+kube-system            coredns-66bff467f8-96gv4                    1/1     Running     1          84d
+kube-system            etcd-minikube                               1/1     Running     0          8d
+kube-system            ingress-nginx-admission-create-fpcvv        0/1     Completed   0          84d
+etc.......
+
+#+begin_src shell
+kubectl get pods 
+#+end_src
+
+#+RESULTS:
+| NAME            | READY | STATUS  | RESTARTS | AGE   |
+| kubia-4lp4r     | 1/1   | Running |        0 | 7d22h |
+| kubia-fun       | 1/1   | Running |        0 | 135m  |
+| kubia-manual    | 1/1   | Running |        0 | 13h   |
+| kubia-manual-v2 | 1/1   | Running |        0 | 173m  |
+
+Looks like my ns if I do not declare it is set to default, lets try to change it to custom-namespace
+#+begin_src shell 
+#kubectl config set-context --current --namespace=custom-namespace
+kubectl config set-context --current --namespace=default
+#+end_src
+
+#+RESULTS:
+: minikube
+
+#+begin_src shell
+kubectl get pods 
+#+end_src
+
+#+RESULTS:
+| NAME         | READY | STATUS  | RESTARTS | AGE |
+| kubia-manual | 1/1   | Running |        0 | 16m |
+
+yay, makes sense, easy isolation for resources.
+
+ok lets clean up
+#+begin_src shell
+kubectl delete po kubia-4lp4r
+#+end_src
+
+#+RESULTS:
+: kubia-4lp4r
+
+Lets delete by labels
+#+begin_src shell
+kubectl delete po -l creation_method=manual 
+#+end_src
+
+#+RESULTS:
+| pod | kubia-manual    | deleted |
+| pod | kubia-manual-v2 | deleted |
+
+Lets delete the entire namespace
+#+begin_src shell
+kubectl delete ns custom-namespace 
+#+end_src
+
+#+RESULTS:
+: custom-namespace
+
+OK at this point I should just have the one pod remaining in default, lets confirm
+#+begin_src shell
+kubectl get po -A 
+#+end_src
+
+#+RESULTS:
+| NAMESPACE            | NAME                                      | READY | STATUS    | RESTARTS |   AGE |
+| default              | kubia-8hvvl                               | 1/1   | Running   |        0 | 5m10s |
+| default              | kubia-fun                                 | 1/1   | Running   |        0 |  151m |
+| kube-system          | coredns-66bff467f8-96gv4                  | 1/1   | Running   |        1 |   84d |
+| kube-system          | etcd-minikube                             | 1/1   | Running   |        0 |    8d |
+etc......
+
+ok forgot about the one we tested nodeSelector on, k lets delete all pods in default see how we go
+ #+begin_src shell
+kubectl delete po --all -ndefault 
+ #+end_src
+
+ #+RESULTS:
+ | pod | kubia-8hvvl | deleted |
+ | pod | kubia-fun   | deleted |
+
+ Lets confirm
+#+begin_src shell
+kubectl get po -A 
+#+end_src
+
+#+RESULTS:
+| NAMESPACE            | NAME                                      | READY | STATUS    | RESTARTS |   AGE |
+| default              | kubia-cj54r                               | 1/1   | Running   |        0 |   59s |
+| kube-system          | coredns-66bff467f8-96gv4                  | 1/1   | Running   |        1 |   84d |
+etc.....
+
+O wait, kubia-cj54r is back, that is right it is a service so even if I delete the pod it will be back
+This command very much seems like rm -rf to me, but you can delete most everything in a ns in one neat command
+#+begin_src shell
+kubectl delete all --all -n default
+#+end_src
+
+#+RESULTS:
+| pod                   | kubia-cj54r | deleted |
+| replicationcontroller | kubia       | deleted |
+| service               | kubernetes  | deleted |
+| service               | kubia-http  | deleted |
+
+Nice it cleaned up replication controller and services I forgot about fs
