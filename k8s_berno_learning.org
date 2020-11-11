@@ -231,3 +231,78 @@ kubectl get pods -L creation_method,env
 : kubia-4lp4r       1/1     Running   0          7d19h                     
 : kubia-manual      1/1     Running   0          10h     manual            
 : kubia-manual-v2   1/1     Running   0          45s     manual            debug
+
+More playing with labels
+Lets just list pods that were manually created
+#+begin_src shell :results value verbatim
+kubectl get po -l creation_method=manual 
+#+end_src
+
+#+RESULTS:
+: NAME              READY   STATUS    RESTARTS   AGE
+: kubia-manual      1/1     Running   0          10h
+: kubia-manual-v2   1/1     Running   0          9m37s
+
+Lets get all pods with an env labels
+#+begin_src shell :results value verbatim
+kubectl get po -l env 
+#+end_src
+
+#+RESULTS:
+: NAME              READY   STATUS    RESTARTS   AGE
+: kubia-manual-v2   1/1     Running   0          10m
+
+Lets get all pods without env labels
+#+begin_src shell :results value verbatim
+kubectl get po -l '!env',creation_method!=manual
+#+end_src
+
+#+RESULTS:
+: NAME          READY   STATUS    RESTARTS   AGE
+: kubia-4lp4r   1/1     Running   0          7d19h
+
+That is pretty sweet I added a second condition that just worked looks like it could be very powerful
+
+One last thing lets label our node so we can organize by those labels
+#+begin_src shell :results value verbatim 
+  kubectl get node
+  kubectl label node minikube fun=true
+  kubectl get nodes -l fun=true
+  kubectl get nodes -L fun=true
+#+end_src
+
+#+RESULTS:
+: NAME       STATUS   ROLES    AGE   VERSION
+: minikube   Ready    master   83d   v1.18.3
+
+: NAME       STATUS   ROLES    AGE   VERSION
+: minikube   Ready    master   83d   v1.18.3
+
+: NAME       STATUS   ROLES    AGE   VERSION   FUN=TRUE
+: minikube   Ready    master   83d   v1.18.3   
+
+* Schedule pods to specific nodes
+
+#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/kubia-fun.yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: kubia-fun
+  spec:
+    nodeSelector:
+      fun: "true"
+    containers:
+    - image: bernokl/kubia
+      name: kubia
+#+end_src
+
+lets go apply it, this will only allow my kibia fun pod to run on a node that has fun as true
+In my case I am using minikube so I only have one node, but the idea is amazing
+Note that it is nodeSelector above that ties my pod to that node
+#+begin_src shell  
+kubectl create -f yaml/kubia-fun.yaml
+#+end_src
+
+#+RESULTS:
+: pod/kubia-fun created
+

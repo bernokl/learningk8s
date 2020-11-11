@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kubia-fun
+spec:
+  nodeSelector:
+    fun: "true"
+  containers:
+  - image: bernokl/kubia
+    name: kubia
