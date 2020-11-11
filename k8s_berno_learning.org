@@ -1,0 +1,132 @@
+# Just capturing some ideas
+
+* Lets test functionalit
+- Create code block with ,ibs type shell and add your command, 
+- To run the command navigate into the block in normal mode and hit ,,
+#+begin_src shell
+kubectl get svc -A
+#+end_src
+
+#+RESULTS:
+| NAMESPACE            | NAME                               | TYPE         |     CLUSTER-IP | EXTERNAL-IP | PORT(S)                |  AGE |
+| default              | kubernetes                         | ClusterIP    |      10.96.0.1 | <none>      | 443/TCP                |  82d |
+| default              | kubia-http                         | LoadBalancer | 10.108.152.157 | <pending>   | 8080:31470/TCP         | 6d8h |
+| kube-system          | ingress-nginx-controller-admission | ClusterIP    |  10.99.132.235 | <none>      | 443/TCP                |  82d |
+| kube-system          | kube-dns                           | ClusterIP    |     10.96.0.10 | <none>      | 53/UDP,53/TCP,9153/TCP |  82d |
+| kube-system          | registry                           | ClusterIP    | 10.100.221.151 | <none>      | 80/TCP,443/TCP         |  82d |
+| kubernetes-dashboard | dashboard-metrics-scraper          | ClusterIP    |   10.109.68.77 | <none>      | 8000/TCP               | 6d7h |
+| kubernetes-dashboard | kubernetes-dashboard               | ClusterIP    |  10.100.239.36 | <none>      | 80/TCP                 | 6d7h |
+
+ok lets go with the lesson, starting on page 61 3.2 Creating pods from YAML....
+
+#+begin_src shell
+kubectl get pods -n default 
+#+end_src
+
+#+RESULTS:
+| NAME        | READY | STATUS  | RESTARTS | AGE  |
+| kubia-4lp4r | 1/1   | Running |        0 | 6d8h |
+
+#+begin_src shell
+kubectl get po kubia-4lp4r -o yaml 
+#+end_src
+
+I got to introducint the main parts of a pod definition on the bottom or page 62 tbc......
+
+* Pod yaml anatomy
+- version of api / kind of resource
+- Metadata: Name, namespace, labels and other
+- spec: contains the actual description of the pos'd contents, such as the pod's containers, volumes, and other data
+- Status: This is only for running container, contains ip, status etc
+
+* lets create a YAML descriptor for a pod
+I would like to create the file here and then tangle it out, lets try
+#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/kubia-manual.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kubia-manual
+spec:
+  containers:
+  - image: bernokl/kubia
+    name: kubia
+    ports:
+    - containerPort: 8080
+      protocol: TCP
+#+end_src
+
+Yay tangle ended up being simple, key is header, to generate file hit ,bt
+Read more about it on [Babel Intro](https://orgmode.org/worg/org-contrib/babel/intro.html) 
+or [examples](https://orgmode.org/manual/Literal-Examples.html)
+
+#+begin_example
+  "#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/kubia-manual.yaml"
+#+end_example
+
+Lets apply it
+#+begin_src shell
+kubectl create -f /Users/bernokl/projects/k8sInAction/yaml/kubia-manual.yaml
+#+end_src
+
+#+RESULTS:
+: pod/kubia-manual created
+
+Lets go look at the new pod
+#+begin_src shell
+kubectl get pods -n default 
+#+end_src
+
+#+RESULTS:
+| NAME         | READY | STATUS  | RESTARTS | AGE   |
+| kubia-4lp4r  | 1/1   | Running |        0 | 7d8h  |
+| kubia-manual | 1/1   | Running |        0 | 3m57s |
+
+Lets look at the logs
+#+begin_src shell
+ kubectl logs kubia-manual 
+#+end_src
+
+#+RESULTS:
+: Kubia server starting...
+
+Nice hint if you have multiple containers in a pod you can point to the specific container with -c
+#+begin_example
+  kubectl logs kubia-manual -c kubia
+#+end_example
+
+Note logs die with pods unless centralized logging is configured.
+
+Lets forward the port so we can get to it
+(Dont run this, it is interactive and will hang, 
+if it does "ps faux | grep port-forward" run in a shell outside emacs should help you locate the pid) 
+#+begin_src xx shell
+  kubectl port-forward kubia-manual 8888:8080 
+#+end_src
+
+The avove is really handy it gives you access from your local network to a pod
+#+begin_src shell :results value verbatim
+  #curl localhost:8080 
+  ps aux | grep port | grep kubia | grep -v grep
+#+end_src
+
+#+RESULTS:
+: bernokl          54743   0.0  0.1  4445792  28704 s006  S+    7:43AM   0:01.51 kubectl port-forward kubia-manual 8888:8080
+
+* Lets create pods with labels
+  
+#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/kubia-manual-with-Labels.yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: kubia-manual-v2
+    labels:
+      creation_method: manual
+      env: prod
+  spec:
+    containers:
+    - image: bernokl/kubia
+      name: kubia
+      ports:
+      - containerPort: 8080
+        protoclol: TCP
+#+end_src
