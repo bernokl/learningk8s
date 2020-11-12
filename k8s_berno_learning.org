@@ -761,3 +761,203 @@ A pitfall of livenessProbe is Java, do not use exec probe as it will have to spi
 
 
 * ReplicationControllers
+  3 Parts of a replicationControler
+- Label selector (seems to be interchangeable with pod selector?)
+- Replica count
+- Pod template
+
+Lets go create one so we can look at the anatomy
+
+#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/kubia-rc.yaml
+  apiVersion: v1
+  kind: ReplicationController
+  metadata:
+    name: kubia
+  spec:
+    replicas: 3
+    selector:
+      app: kubia
+    template:
+      metadata:
+        labels:
+          app: kubia
+      spec:
+        containers: 
+        - name: kubia
+          image: bernokl/kubia
+          ports:
+            - containerPort: 8080
+    #+end_src
+
+Tangled out the yaml with my trusty ,bt it still make sme happy, what can I say
+Ok lets go apply the new yaml and see if we get 3 new instances of kubia running
+TIP: if you do not define the selector in rc spec it will be derived from pod template
+no need to add it.
+
+ok
+Its been a while lets see what pods are running in default
+#+begin_src shell :results raw
+kubectl get pods 
+#+end_src
+
+#+RESULTS:
+NAME             READY   STATUS             RESTARTS   AGE
+kubia-liveness   0/1     CrashLoopBackOff   177        20h
+
+Good so the liveness test is still going, will leave it for now
+Lets go apply our yaml and see if we conjured a new rc for kubia
+#+begin_src shell :results raw
+kubectl create -f yaml/kubia-rc.yaml 
+#+end_src
+
+#+RESULTS:
+replicationcontroller/kubia created
+
+Lets check what we did
+#+begin_src shell :results raw
+kubectl get pods 
+#+end_src
+
+#+RESULTS:
+NAME             READY   STATUS             RESTARTS   AGE
+kubia-liveness   0/1     CrashLoopBackOff   179        20h
+kubia-pqwfg      1/1     Running            0          15s
+kubia-qcjmd      1/1     Running            0          15s
+kubia-v5zpr      1/1     Running            0          15s
+
+O nice, I have 3 running pods, lets go off the reservation and kill one of them, see what happens
+
+#+begin_src shell :results raw
+kubectl delete po kubia-pqwfg
+#+end_src
+
+#+RESULTS:
+pod "kubia-pqwfg" deleted
+
+
+#+begin_src shell :results raw
+kubectl get pods 
+#+end_src
+
+#+RESULTS:
+NAME             READY   STATUS    RESTARTS   AGE
+kubia-f6jv5      1/1     Running   0          59s
+kubia-liveness   1/1     Running   182        21h
+kubia-qcjmd      1/1     Running   0          10m
+kubia-v5zpr      1/1     Running   0          10m
+
+O snap, that container got replaced by a new one, go replicationControler go
+Lets see what info we can get on it
+
+
+#+begin_src shell :results raw
+kubectl get rc
+#+end_src
+
+#+RESULTS:
+NAME    DESIRED   CURRENT   READY   AGE
+kubia   3         3         3       13m
+
+Lets see if we can look at the description
+
+#+begin_src shell :results raw
+kubectl describe rc kubia
+#+end_src
+
+#+RESULTS:
+Name:         kubia
+Namespace:    default
+Selector:     app=kubia
+Labels:       app=kubia
+Annotations:  <none>
+Replicas:     3 current / 3 desired
+Pods Status:  3 Running / 0 Waiting / 0 Succeeded / 0 Failed
+Pod Template:
+  Labels:  app=kubia
+  Containers:
+   kubia:
+    Image:        bernokl/kubia
+    Port:         8080/TCP
+    Host Port:    0/TCP
+    Environment:  <none>
+    Mounts:       <none>
+  Volumes:        <none>
+Events:
+  Type    Reason            Age    From                    Message
+  ----    ------            ----   ----                    -------
+  Normal  SuccessfulCreate  14m    replication-controller  Created pod: kubia-pqwfg
+  Normal  SuccessfulCreate  14m    replication-controller  Created pod: kubia-qcjmd
+  Normal  SuccessfulCreate  14m    replication-controller  Created pod: kubia-v5zpr
+  Normal  SuccessfulCreate  4m52s  replication-controller  Created pod: kubia-f6jv5
+
+ 
+This is cool, we are going to change the labels on pods to show that there is no relationship
+between the pod and the rc besides the label, as soon as we change the label of one of our pods
+my bet is that a new pod will be created because the kubia label count will be one short
+#+begin_src shell :results raw
+kubectl get pods
+#+end_src
+
+#+RESULTS:
+NAME             READY   STATUS             RESTARTS   AGE
+kubia-f6jv5      1/1     Running            0          15m
+kubia-liveness   0/1     CrashLoopBackOff   185        21h
+kubia-qcjmd      1/1     Running            0          24m
+kubia-v5zpr      1/1     Running            0          24m
+
+
+#+begin_src shell :results raw
+kubectl label pod kubia-f6jv5 type=special
+#+end_src
+
+#+RESULTS:
+pod/kubia-f6jv5 labeled
+
+
+#+begin_src shell :results raw
+kubectl get pods --show-labels
+#+end_src
+
+#+RESULTS:
+NAME             READY   STATUS             RESTARTS   AGE   LABELS
+kubia-f6jv5      1/1     Running            0          16m   app=kubia,type=special
+kubia-liveness   0/1     CrashLoopBackOff   185        21h   <none>
+kubia-qcjmd      1/1     Running            0          25m   app=kubia
+kubia-v5zpr      1/1     Running            0          25m   app=kubia
+
+You can see the rc does not care about additional labels
+
+Now lets overwrite app on that on
+#+begin_src shell :results raw
+kubectl label pod kubia-f6jv5 app=foo --overwrite
+#+end_src
+
+#+RESULTS:
+pod/kubia-f6jv5 labeled
+
+
+Lets go see
+#+begin_src shell :results raw
+kubectl get pods -L app
+#+end_src
+
+#+RESULTS:
+NAME             READY   STATUS              RESTARTS   AGE   APP
+kubia-f6jv5      1/1     Running             0          20m   foo
+kubia-liveness   1/1     Running             187        21h   
+kubia-qcjmd      1/1     Running             0          29m   kubia
+kubia-v5zpr      1/1     Running             0          29m   kubia
+kubia-wbpzv      0/1     ContainerCreating   0          3s    kubia
+
+Ahh snap, new container coming up because the count of kubia was one short
+
+k lets clean up a bit going to delete foo and liveness test
+#+begin_src shell :results raw
+kubectl delete pod kubia-f6jv5
+#+end_src
+
+#+RESULTS:
+pod "kubia-f6jv5" deleted
+pod "kubia-liveness" deleted
+
+On page 100 Removing pods from controllers in practice
