@@ -611,3 +611,153 @@ kubectl delete all --all -n default
 | service               | kubia-http  | deleted |
 
 Nice it cleaned up replication controller and services I forgot about fs
+
+* Pod health LIVENESS PROBES
+3 types of livliness probes
+- http get, performs GET request
+- TCP socket probe, tries to bind to the specified port of the container
+- Exec, executes an arbitrary command inside the container
+
+To test http livliness probe use an image that has the nodjsApp report 500 after every 5th reques 
+Lets build the yaml to create this pod
+
+#+begin_src yaml :tangle yaml/kubia-liveness-probe.yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: kubia-liveness
+  spec:
+    containers:
+    - image: luksa/kubia-unhealthy
+      name: kubia
+      livenessProbe:
+        httpGet:
+          path: /
+          port: 8080
+#+end_src
+
+lets go apply it
+#+begin_src shell :results raw
+kubectl apply -f yaml/kubia-liveness-probe.yaml 
+#+end_src
+
+#+RESULTS:
+pod/kubia-liveness created
+
+#+begin_src shell results:raw
+kubectl get po kubia-liveness
+#+end_src
+
+#+RESULTS:
+| NAME           | READY | STATUS  | RESTARTS | AGE   |
+| kubia-liveness | 1/1   | Running |        2 | 4m44s |
+
+You can look at the logs for the pod that already crashed by using `--previous`
+#+begin_src shell
+kubectl logs kubia-liveness --previous 
+#+end_src
+
+#+RESULTS:
+| Kubia    | server  | starting... |                   |
+| Received | request | from        | ::ffff:172.17.0.1 |
+| Received | request | from        | ::ffff:172.17.0.1 |
+| Received | request | from        | ::ffff:172.17.0.1 |
+| Received | request | from        | ::ffff:172.17.0.1 |
+| Received | request | from        | ::ffff:172.17.0.1 |
+| Received | request | from        | ::ffff:172.17.0.1 |
+| Received | request | from        | ::ffff:172.17.0.1 |
+| Received | request | from        | ::ffff:172.17.0.1 |
+
+I still think the best info on a container is in describe, Events is full of gold
+#+begin_src shell :results raw
+  kubectl describe po kubia-liveness > tmp
+  head -15 tmp
+  echo "----------------------------------"
+  grep -i -b2 -a2 "last state" tmp
+  echo "----------------------------------"
+  grep -i -b2 -a2 "liveness" tmp
+  echo "----------------------------------"
+  tail -10 tmp
+  rm tmp 
+#+end_src
+
+#+RESULTS:
+Name:         kubia-liveness
+Namespace:    default
+Priority:     0
+Node:         minikube/192.168.64.2
+Start Time:   Thu, 12 Nov 2020 15:24:43 +1300
+Labels:       <none>
+Annotations:  Status:  Running
+IP:           172.17.0.6
+IPs:
+  IP:  172.17.0.6
+Containers:
+  kubia:
+    Container ID:   docker://d130e21b7472b362d744e5f8ec80439bcddecd435040ef3312477db2299f81a9
+    Image:          luksa/kubia-unhealthy
+    Image ID:       docker-pullable://luksa/kubia-unhealthy@sha256:5c746a42612be61209417d913030d97555cff0b8225092908c57634ad7c235f7
+----------------------------------
+592-    State:          Waiting
+620-      Reason:       CrashLoopBackOff
+657:    Last State:     Terminated
+688-      Reason:       Error
+714-      Exit Code:    137
+----------------------------------
+0:Name:         kubia-liveness
+29-Namespace:    default
+51-Priority:     0
+--
+--
+842-    Ready:          False
+868-    Restart Count:  9
+890:    Liveness:       http-get http://:8080/ delay=0s timeout=1s period=10s #success=1 #failure=3
+986-    Environment:    <none>
+1013-    Mounts:
+--
+--
+1593-  Type     Reason     Age                   From               Message
+1664-  ----     ------     ----                  ----               -------
+1735:  Normal   Scheduled  27m                   default-scheduler  Successfully assigned default/kubia-liveness to minikube
+1855-  Normal   Created    23m (x3 over 26m)     kubelet, minikube  Created container kubia
+1942-  Normal   Started    23m (x3 over 26m)     kubelet, minikube  Started container kubia
+--
+--
+1855-  Normal   Created    23m (x3 over 26m)     kubelet, minikube  Created container kubia
+1942-  Normal   Started    23m (x3 over 26m)     kubelet, minikube  Started container kubia
+2029:  Normal   Killing    21m (x3 over 25m)     kubelet, minikube  Container kubia failed liveness probe, will be restarted
+2149-  Normal   Pulling    21m (x4 over 27m)     kubelet, minikube  Pulling image "luksa/kubia-unhealthy"
+2250-  Normal   Pulled     21m (x4 over 26m)     kubelet, minikube  Successfully pulled image "luksa/kubia-unhealthy"
+--
+--
+2250-  Normal   Pulled     21m (x4 over 26m)     kubelet, minikube  Successfully pulled image "luksa/kubia-unhealthy"
+2363-  Warning  BackOff    6m59s (x27 over 14m)  kubelet, minikube  Back-off restarting failed container
+2463:  Warning  Unhealthy  85s (x28 over 25m)    kubelet, minikube  Liveness probe failed: HTTP probe failed with statuscode: 500
+----------------------------------
+  Type     Reason     Age                   From               Message
+  ----     ------     ----                  ----               -------
+  Normal   Scheduled  27m                   default-scheduler  Successfully assigned default/kubia-liveness to minikube
+  Normal   Created    23m (x3 over 26m)     kubelet, minikube  Created container kubia
+  Normal   Started    23m (x3 over 26m)     kubelet, minikube  Started container kubia
+  Normal   Killing    21m (x3 over 25m)     kubelet, minikube  Container kubia failed liveness probe, will be restarted
+  Normal   Pulling    21m (x4 over 27m)     kubelet, minikube  Pulling image "luksa/kubia-unhealthy"
+  Normal   Pulled     21m (x4 over 26m)     kubelet, minikube  Successfully pulled image "luksa/kubia-unhealthy"
+  Warning  BackOff    6m59s (x27 over 14m)  kubelet, minikube  Back-off restarting failed container
+  Warning  Unhealthy  85s (x28 over 25m)    kubelet, minikube  Liveness probe failed: HTTP probe failed with statuscode: 500
+
+
+From the liveness heading above we see that the delay is set to 0s
+That means it starts probing as soon as the new container gets created
+it is a good idea to add `initialDelaySeconds: 15` so the probe waits for the container to get ready before hitting
+
+Exit code 137 means pod was terminated by external process ie k8s, it failed the livenessProbe and was killed
+
+Make sure liveness only checks things internal to the pod, 
+a front end pod's liveness probe should not report failed if the db goes away
+
+Keep the probe light weight, do not use a call that is a lot of compute or time
+
+A pitfall of livenessProbe is Java, do not use exec probe as it will have to spin up jvm every time
+
+
+* ReplicationControllers
