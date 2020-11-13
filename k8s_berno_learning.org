@@ -960,4 +960,133 @@ kubectl delete pod kubia-f6jv5
 pod "kubia-f6jv5" deleted
 pod "kubia-liveness" deleted
 
-On page 100 Removing pods from controllers in practice
+O the next plan is to directly edit rc to add an additional label to the pod template,
+wonder what will happen here, my bet is we will hang the editor
+#+begin_src shell : results raw
+kubectl edit rc kubia 
+#+end_src
+
+#+RESULTS:
+
+It did not hang, but rather errored out trying to open, vi do I want to set my editor to emacs? mmm lets hold off, gonna go run that in the terminal, back in a jiff
+k edited the rc to add a second label to pod template, lets see what I did
+
+#+begin_src shell :results raw
+kubectl get pods -L app
+#+end_src
+
+#+RESULTS:
+NAME          READY   STATUS    RESTARTS   AGE   APP
+kubia-qcjmd   1/1     Running   0          53m   kubia
+kubia-v5zpr   1/1     Running   0          53m   kubia
+kubia-wbpzv   1/1     Running   0          23m   kubia
+
+k no change, lets delete one
+
+#+begin_src shell :results raw
+kubectl delete pod kubia-qcjmd
+#+end_src
+
+#+RESULTS:
+pod "kubia-qcjmd" deleted
+
+
+#+begin_src shell :results raw
+kubectl get pods --show-labels
+#+end_src
+
+#+RESULTS:
+NAME          READY   STATUS    RESTARTS   AGE     LABELS
+kubia-98ppm   1/1     Running   0          2m38s   app=kubia,bk=whoot
+kubia-v5zpr   1/1     Running   0          57m     app=kubia
+kubia-wbpzv   1/1     Running   0          27m     app=kubia
+
+Lets go back to the editor bit, I see there is kube_editor, let me try to set it to emacs, wee what happens
+#+begin_src shell :results raw
+which emacs 
+#+end_src
+
+#+RESULTS:
+/usr/local/bin/emacs
+
+#+begin_src shell :results raw
+  set KUBE_EDITOR emacs
+#+end_src
+
+#+RESULTS:
+
+Lets try and edit again
+#+begin_src shell : results raw
+kubectl edit rc kubia 
+#+end_src
+
+#+RESULTS:
+
+Nope still falls back to vi, there is a really nice kubernetes layer built in so going to leave this for now
+
+Back to ReplicationControllers, lets go add some replicas, see what we seems
+
+
+#+begin_src shell : results raw
+kubectl scale rc kubia --replicas=10 
+#+end_src
+
+#+RESULTS:
+: replicationcontroller/kubia scaled
+
+#+begin_src shell : results raw
+kubectl get pods
+#+end_src
+
+#+RESULTS:
+| NAME        | READY | STATUS            | RESTARTS | AGE |
+| kubia-9482q | 1/1   | Running           |        0 | 23s |
+| kubia-98ppm | 1/1   | Running           |        0 | 13m |
+| kubia-9xc8x | 0/1   | ContainerCreating |        0 | 23s |
+| kubia-cbqmm | 1/1   | Running           |        0 | 23s |
+| kubia-nhp94 | 1/1   | Running           |        0 | 23s |
+| kubia-pfsdq | 1/1   | Running           |        0 | 23s |
+| kubia-v4ss5 | 1/1   | Running           |        0 | 23s |
+| kubia-v5zpr | 1/1   | Running           |        0 | 68m |
+| kubia-wbpzv | 1/1   | Running           |        0 | 39m |
+| kubia-wk77p | 1/1   | Running           |        0 | 23s |
+
+That is badass
+
+
+#+begin_src shell : results raw
+kubectl scale rc kubia --replicas=3 
+#+end_src
+
+#+RESULTS:
+: replicationcontroller/kubia scaled
+
+#+begin_src shell : results raw
+kubectl get pods
+#+end_src
+
+#+RESULTS:
+| NAME        | READY | STATUS      | RESTARTS | AGE |
+| kubia-9482q | 1/1   | Terminating |        0 | 84s |
+| kubia-98ppm | 1/1   | Running     |        0 | 14m |
+| kubia-9xc8x | 1/1   | Terminating |        0 | 84s |
+| kubia-cbqmm | 1/1   | Terminating |        0 | 84s |
+| kubia-nhp94 | 1/1   | Terminating |        0 | 84s |
+| kubia-pfsdq | 1/1   | Terminating |        0 | 84s |
+| kubia-v4ss5 | 1/1   | Terminating |        0 | 84s |
+| kubia-v5zpr | 1/1   | Running     |        0 | 69m |
+| kubia-wbpzv | 1/1   | Running     |        0 | 40m |
+| kubia-wk77p | 1/1   | Terminating |        0 | 84s |
+
+So cool so damn trivial. One very important thing, the scale command, edits rc kubia and changes the `replicas:`
+We are not telling k8s to change the pods, we are updating our declared state and k8s adjust reality to fit that state
+Neat huh?
+
+When rc's get deleted they typically clean up the pods, but because there is nothing your pods need from the
+rc you can delete it without deleteing the pods simply use
+#+begin_example
+kubectl delete rc kubia --cascade=false
+#+end_example
+
+ok getting to bottom of 104 4.3
+
