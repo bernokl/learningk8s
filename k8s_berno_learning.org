@@ -1084,9 +1084,429 @@ Neat huh?
 
 When rc's get deleted they typically clean up the pods, but because there is nothing your pods need from the
 rc you can delete it without deleteing the pods simply use
-#+begin_example
+#+begin_src shell :results raw
 kubectl delete rc kubia --cascade=false
-#+end_example
+#+end_src
 
-ok getting to bottom of 104 4.3
+#+RESULTS:
 
+OK, it seems replicationControlers are being replaced with ReplicaSets, you do not directly create them as a rule
+they are usually created by higher level processes like deploys. ReplicaSets can do a few things replicationControlers
+can not, for instance they can accept multiple labels, they can also use label key without value, so it would allow you
+to run env=prod, env=dev etc as labels: env
+
+Lets go manually make a replicaSet
+
+
+#+begin_src yaml :tangle yaml/kubia-replicaset.yaml
+  apiVersion: apps/v1
+  kind: ReplicaSet
+  metadata:
+    name: kubia
+  spec: 
+    replicas: 3
+    selector:
+      matchLabels:
+        app: kubia
+    template:
+      metadata:
+        labels:
+          app: kubia
+      spec:
+        containers:
+        - name: kubia
+          image: bernokl/kubia
+          ports:
+            - containerPort: 8080
+#+end_src
+
+#+RESULTS:
+
+#+begin_src shell :results raw
+kubectl get pods
+#+end_src
+
+#+RESULTS:
+NAME          READY   STATUS    RESTARTS   AGE
+kubia-rf7gz   1/1     Running   0          4d6h
+kubia-v5zpr   1/1     Running   0          4d9h
+kubia-wbpzv   1/1     Running   0          4d9h
+NAME          READY   STATUS    RESTARTS   AGE
+kubia-98ppm   1/1     Running   0          111m
+kubia-v5zpr   1/1     Running   0          166m
+kubia-wbpzv   1/1     Running   0          137m
+
+#+begin_src shell :results raw
+kubectl delete -f yaml/kubia-replicaset.yaml
+#+end_src
+
+#+RESULTS:
+replicaset.apps "kubia" deleted
+replicaset.apps/kubia created
+replicaset.apps "kubia" deleted
+replicaset.apps/kubia created
+
+
+#+begin_src shell :results raw
+  kubectl get replicaSet -A
+#+end_src
+
+#+RESULTS:
+NAMESPACE              NAME                                  DESIRED   CURRENT   READY   AGE
+default                kubia                                 3         3         3       18s
+kube-system            coredns-66bff467f8                    1         1         1       89d
+kube-system            ingress-nginx-controller-69ccf5d9d8   0         0         0       89d
+kube-system            ingress-nginx-controller-799dcd5d57   1         1         1       13d
+kubernetes-dashboard   dashboard-metrics-scraper-dc6947fbf   1         1         1       13d
+kubernetes-dashboard   kubernetes-dashboard-58b79879c5       1         1         1       13d
+NAMESPACE              NAME                                  DESIRED   CURRENT   READY   AGE
+default                kubia                                 3         3         3       42m
+kube-system            coredns-66bff467f8                    1         1         1       85d
+kube-system            ingress-nginx-controller-69ccf5d9d8   0         0         0       85d
+kube-system            ingress-nginx-controller-799dcd5d57   1         1         1       9d
+kubernetes-dashboard   dashboard-metrics-scraper-dc6947fbf   1         1         1       9d
+kubernetes-dashboard   kubernetes-dashboard-58b79879c5       1         1         1       9d
+
+#+begin_src shell :results raw
+kubectl describe rs
+#+end_src
+
+#+RESULTS:
+Name:         kubia
+Namespace:    default
+Selector:     app=kubia
+Labels:       <none>
+Annotations:  <none>
+Replicas:     3 current / 3 desired
+Pods Status:  3 Running / 0 Waiting / 0 Succeeded / 0 Failed
+Pod Template:
+  Labels:  app=kubia
+  Containers:
+   kubia:
+    Image:        bernokl/kubia
+    Port:         8080/TCP
+    Host Port:    0/TCP
+    Environment:  <none>
+    Mounts:       <none>
+  Volumes:        <none>
+Events:
+  Type    Reason            Age   From                   Message
+  ----    ------            ----  ----                   -------
+  Normal  SuccessfulCreate  40s   replicaset-controller  Created pod: kubia-jbnb6
+  Normal  SuccessfulCreate  40s   replicaset-controller  Created pod: kubia-7ljzb
+  Normal  SuccessfulCreate  40s   replicaset-controller  Created pod: kubia-74fkq
+
+
+Biggest improvement for rs over rc is the matchExpressions, it is very powerful
+
+#+begin_src shell
+kubectl get pods -n default 
+#+end_src
+
+#+RESULTS:
+| NAME        | READY | STATUS  | RESTARTS | AGE   |
+| kubia-74fkq | 1/1   | Running |        0 | 3m46s |
+| kubia-7ljzb | 1/1   | Running |        0 | 3m46s |
+| kubia-jbnb6 | 1/1   | Running |        0 | 3m46s |
+
+
+#+begin_src yaml :tangle yaml/kubia-replicaset-matchexpressions.yaml
+  apiVersion: apps/v1
+  kind: ReplicaSet
+  metadata:
+    name: kubia
+  spec: 
+    replicas: 3
+    selector:
+      matchExpressions:
+        - key: app
+          operator: In
+          values:
+            - kubia
+    template:
+      metadata:
+        labels:
+          app: kubia
+      spec:
+        containers:
+        - name: kubia
+          image: bernokl/kubia
+          ports:
+            - containerPort: 8080
+#+end_src
+
+#+begin_src shell :results raw
+kubectl create -f yaml/kubia-replicaset-matchExpressions.yaml 
+#+end_src
+
+#+RESULTS:
+replicaset.apps/kubia created
+
+#+begin_src shell :results raw
+kubectl describe rs  
+#+end_src
+
+#+RESULTS:
+Name:         kubia
+Namespace:    default
+Selector:     app in (kubia)
+Labels:       <none>
+Annotations:  <none>
+Replicas:     3 current / 3 desired
+Pods Status:  3 Running / 0 Waiting / 0 Succeeded / 0 Failed
+Pod Template:
+  Labels:  app=kubia
+  Containers:
+   kubia:
+    Image:        bernokl/kubia
+    Port:         8080/TCP
+    Host Port:    0/TCP
+    Environment:  <none>
+    Mounts:       <none>
+  Volumes:        <none>
+Events:
+  Type    Reason            Age    From                   Message
+  ----    ------            ----   ----                   -------
+  Normal  SuccessfulCreate  3m47s  replicaset-controller  Created pod: kubia-6rts5
+  Normal  SuccessfulCreate  3m47s  replicaset-controller  Created pod: kubia-v96d4
+  Normal  SuccessfulCreate  3m47s  replicaset-controller  Created pod: kubia-c5mfw
+NAME    DESIRED   CURRENT   READY   AGE
+kubia   3         3         3       3m30s
+
+- In—Label’s value must match one of the specified values.
+- NotIn—Label’s value must not match any of the specified values.
+- Exists—Pod must include a label with the specified key (the value isn’t import-
+ant). When using this operator, you shouldn’t specify the values field.
+- DoesNotExist—Pod must not include a label with the specified key. The values
+property must not be specified.
+
+Lets clean up
+#+begin_src shell :results raw
+kubectl delete rs kubia 
+#+end_src
+
+#+RESULTS:
+replicaset.apps "kubia" deleted
+
+#+begin_src shell :results raw
+kubectl get po -A 
+#+end_src
+
+#+RESULTS:
+NAMESPACE              NAME                                        READY   STATUS      RESTARTS   AGE
+kube-system            coredns-66bff467f8-96gv4                    1/1     Running     1          89d
+kube-system            etcd-minikube                               1/1     Running     0          13d
+kube-system            ingress-nginx-admission-create-fpcvv        0/1     Completed   0          89d
+kube-system            ingress-nginx-admission-patch-6qfcz         0/1     Completed   0          89d
+kube-system            ingress-nginx-controller-799dcd5d57-cmd68   1/1     Running     0          13d
+kube-system            kube-apiserver-minikube                     1/1     Running     1          89d
+kube-system            kube-controller-manager-minikube            1/1     Running     1          89d
+kube-system            kube-proxy-d892r                            1/1     Running     1          89d
+kube-system            kube-scheduler-minikube                     1/1     Running     1          89d
+kube-system            registry-65xp4                              1/1     Running     1          89d
+kube-system            registry-proxy-dqn2b                        1/1     Running     1          89d
+kube-system            storage-provisioner                         1/1     Running     5          89d
+kubernetes-dashboard   dashboard-metrics-scraper-dc6947fbf-bp98k   1/1     Running     0          13d
+kubernetes-dashboard   kubernetes-dashboard-58b79879c5-2w2wl       1/1     Running     0          13d
+
+* DaemonSet
+- This is a resource that is supposed to run one pod on each node
+- examples is sytem level resources you want on each node, logging, monitoring etc.
+- It is not controlled by the scheduler, will add pods to nodes with scheduling off
+- You can add a nodeSelector that will allow daemonset to run on a subset of nodes.
+
+#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/ssd-monitor-daemonset.yaml
+  apiVersion: apps/v1
+  kind: DaemonSet
+  metadata:
+    name: ssd-monitor
+  spec:
+    selector:
+      matchLabels:
+        app: ssd-monitor
+    template:
+      metadata:
+        labels:
+          app: ssd-monitor
+      spec:
+        nodeSelector:
+          disk: ssd
+        containers:
+        - name: main
+          image: luksa/ssd-monitor
+#+end_src
+
+
+Ok lets apply that sucker
+#+begin_src shell :results raw
+kubectl apply -f yaml/ssd-monitor-daemonset.yaml 
+#+end_src
+
+#+RESULTS:
+daemonset.apps/ssd-monitor created
+
+#+begin_src shell :results raw
+kubectl get ds
+#+end_src
+
+#+RESULTS:
+NAME          DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+ssd-monitor   0         0         0       0            0           disk=ssd        29s
+
+See no pods running, because none of the nodes have a label disk=ssd, lets look
+#+begin_src shell :results raw
+kubectl get node 
+#+end_src
+
+#+RESULTS:
+NAME       STATUS   ROLES    AGE   VERSION
+minikube   Ready    master   89d   v1.18.3
+
+Lets go label it, wait before we do that lets jsut confirm the pods we see
+
+#+begin_src shell :results raw
+kubectl get pods -A
+#+end_src
+
+#+RESULTS:
+NAMESPACE              NAME                                        READY   STATUS      RESTARTS   AGE
+kube-system            coredns-66bff467f8-96gv4                    1/1     Running     1          89d
+kube-system            etcd-minikube                               1/1     Running     0          13d
+kube-system            ingress-nginx-admission-create-fpcvv        0/1     Completed   0          89d
+kube-system            ingress-nginx-admission-patch-6qfcz         0/1     Completed   0          89d
+kube-system            ingress-nginx-controller-799dcd5d57-cmd68   1/1     Running     0          13d
+kube-system            kube-apiserver-minikube                     1/1     Running     1          89d
+kube-system            kube-controller-manager-minikube            1/1     Running     1          89d
+kube-system            kube-proxy-d892r                            1/1     Running     1          89d
+kube-system            kube-scheduler-minikube                     1/1     Running     1          89d
+kube-system            registry-65xp4                              1/1     Running     1          89d
+kube-system            registry-proxy-dqn2b                        1/1     Running     1          89d
+kube-system            storage-provisioner                         1/1     Running     5          89d
+kubernetes-dashboard   dashboard-metrics-scraper-dc6947fbf-bp98k   1/1     Running     0          13d
+kubernetes-dashboard   kubernetes-dashboard-58b79879c5-2w2wl       1/1     Running     0          13d
+
+#+begin_src shell :results raw
+kubectl label node minikube disk=ssd 
+#+end_src
+
+#+RESULTS:
+node/minikube labeled
+
+#+begin_src shell :results raw
+kubectl get pods
+#+end_src
+
+#+RESULTS:
+NAME                READY   STATUS    RESTARTS   AGE
+ssd-monitor-vgqwv   1/1     Running   0          6m42s
+NAMESPACE              NAME                                        READY   STATUS      RESTARTS   AGE
+default                ssd-monitor-vgqwv                           1/1     Running     0          17s
+kube-system            coredns-66bff467f8-96gv4                    1/1     Running     1          89d
+kube-system            etcd-minikube                               1/1     Running     0          13d
+kube-system            ingress-nginx-admission-create-fpcvv        0/1     Completed   0          89d
+kube-system            ingress-nginx-admission-patch-6qfcz         0/1     Completed   0          89d
+kube-system            ingress-nginx-controller-799dcd5d57-cmd68   1/1     Running     0          13d
+kube-system            kube-apiserver-minikube                     1/1     Running     1          89d
+kube-system            kube-controller-manager-minikube            1/1     Running     1          89d
+kube-system            kube-proxy-d892r                            1/1     Running     1          89d
+kube-system            kube-scheduler-minikube                     1/1     Running     1          89d
+kube-system            registry-65xp4                              1/1     Running     1          89d
+kube-system            registry-proxy-dqn2b                        1/1     Running     1          89d
+kube-system            storage-provisioner                         1/1     Running     5          89d
+kubernetes-dashboard   dashboard-metrics-scraper-dc6947fbf-bp98k   1/1     Running     0          13d
+kubernetes-dashboard   kubernetes-dashboard-58b79879c5-2w2wl       1/1     Running     0          13d
+
+
+#+begin_src shell :results raw
+  kubectl label node minikube disk=hdd --overwrite
+#+end_src
+
+#+RESULTS:
+node/minikube labeled
+node/minikube not labeled
+
+
+#+begin_src shell :results raw
+kubectl get pods
+#+end_src
+
+#+RESULTS:
+NAME                READY   STATUS        RESTARTS   AGE
+ssd-monitor-vgqwv   1/1     Terminating   0          10m
+NAME                READY   STATUS    RESTARTS   AGE
+ssd-monitor-vgqwv   1/1     Running   0          9m4s
+NAME                READY   STATUS    RESTARTS   AGE
+ssd-monitor-vgqwv   1/1     Running   0          8m30s
+
+#+begin_src shell :results raw
+kubectl get ds 
+#+end_src
+
+#+RESULTS:
+NAME          DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE   NODE SELECTOR   AGE
+ssd-monitor   0         0         0       0            0           disk=ssd        16m
+
+#+begin_src shell :results raw
+kubectl delete ds ssd-monitor 
+#+end_src
+
+#+RESULTS:
+daemonset.apps "ssd-monitor" deleted
+
+#+begin_src shell :results raw
+kubectl get ds 
+#+end_src
+
+#+RESULTS:
+
+* Job
+- Used to manage pods that run a task and exits on completion
+- Exmple would be ETL job, lots of prow jobs
+
+#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/job-exporter.yaml
+  apiVersion: batch/v1
+  kind: Job
+  metadata:
+    name: batch-job
+  spec:
+    template:
+      metadata:
+        labels:
+          app: batch
+      spec:
+        restartPolicy: OnFailure
+        containers:
+        - name: main
+          image: luksa/batch-job
+#+end_src
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/job-exporter.yaml
+#+end_src
+
+#+RESULTS:
+job.batch/batch-job created
+
+#+begin_src shell :results raw
+kubectl get po
+#+end_src
+
+#+RESULTS:
+NAME              READY   STATUS      RESTARTS   AGE
+batch-job-rmf74   0/1     Completed   0          2m9s
+NAME              READY   STATUS    RESTARTS   AGE
+batch-job-rmf74   1/1     Running   0          2m2s
+NAME              READY   STATUS    RESTARTS   AGE
+batch-job-rmf74   1/1     Running   0          66s
+NAME              READY   STATUS              RESTARTS   AGE
+batch-job-rmf74   0/1     ContainerCreating   0          5s
+
+#+begin_src shell :results raw
+kubectl logs batch-job-rmf74 
+#+end_src
+
+#+RESULTS:
+Tue Nov 17 10:45:05 UTC 2020 Batch job starting
+Tue Nov 17 10:47:05 UTC 2020 Finished succesfully
+
+Got down to 146 4.5.4 Running multiple pod instances in a Job
