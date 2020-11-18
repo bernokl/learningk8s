@@ -1509,4 +1509,97 @@ kubectl logs batch-job-rmf74
 Tue Nov 17 10:45:05 UTC 2020 Batch job starting
 Tue Nov 17 10:47:05 UTC 2020 Finished succesfully
 
-Got down to 146 4.5.4 Running multiple pod instances in a Job
+
+#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/multi-completion-parralel-batch-job.yaml
+  apiVersion: batch/v1
+  kind: Job
+  metadata:
+    name: multi-completion-batch-job
+  spec:
+    completions: 5
+    parallelism: 2
+    template:
+      metadata:
+        labels:
+          app: batch
+      spec:
+        restartPolicy: OnFailure
+        containers:
+        - name: main
+          image: luksa/batch-job
+#+end_src
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/multi-completion-parralel-batch-job.yaml
+#+end_src
+
+#+RESULTS:
+job.batch/multi-completion-batch-job created
+
+#+begin_src shell :results raw
+kubectl get po
+#+end_src
+
+#+RESULTS:
+NAME                               READY   STATUS              RESTARTS   AGE
+batch-job-rmf74                    0/1     Completed           0          22h
+multi-completion-batch-job-9x6qn   0/1     ContainerCreating   0          4s
+multi-completion-batch-job-l9pn5   0/1     ContainerCreating   0          4s
+NAME              READY   STATUS      RESTARTS   AGE
+batch-job-rmf74   0/1     Completed   0          22h
+
+Not sure why this scaling is not working, it says it is not recognizing the resourcem perhaps scale got depricated?
+TODO: look into manually scaling, more for interest than real use
+#+begin_src shell :results raw
+  kubectl scale job multi-completion-batch-job --replicas 3
+#+end_src
+
+#+RESULTS:
+NAME                         COMPLETIONS   DURATION   AGE
+batch-job                    1/1           2m6s       22h
+multi-completion-batch-job   2/5           3m9s       3m9s
+
+** cronjob
+Works roughly same as linux cronjob, but runs k8s job
+
+Lets write one, see what it does
+#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/cronjob.yaml
+  apiVersion: batch/v1beta1
+  kind: CronJob
+  metadata:
+    name: batch-job-every-fifteen-minutes
+  spec:
+    schedule: "0,15,30,45 * * * *"
+    jobTemplate:
+      spec:
+        template:
+          metadata:
+            labels:
+              app: periodic-batch-job
+          spec:
+            restartPolicy: OnFailure
+            containers:
+            - name: main
+              image: luksa/batch-job
+#+end_src
+
+#+begin_src shell :results raw
+  kubectl delete -f yaml/cronjob.yaml
+#+end_src
+
+#+RESULTS:
+cronjob.batch "batch-job-every-fifteen-minutes" deleted
+cronjob.batch/batch-job-every-fifteen-minutes created
+
+#+begin_src shell :results raw
+  kubectl get cronjobs
+#+end_src
+
+#+RESULTS:
+NAME                              SCHEDULE             SUSPEND   ACTIVE   LAST SCHEDULE   AGE
+batch-job-every-fifteen-minutes   0,15,30,45 * * * *   False     0        <none>          38s
+NAME                         COMPLETIONS   DURATION   AGE
+batch-job                    1/1           2m6s       23h
+multi-completion-batch-job   5/5           6m20s      26m
+
+Finished chapter 4, I am at the start of chapter 5 p120 Services: enabling clients to discover and talk to pods 
