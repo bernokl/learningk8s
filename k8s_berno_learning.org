@@ -1805,14 +1805,14 @@ kubia-rfzl9                        0/1     ContainerCreating   0          5s
 You've hit kubia-rcvn9
 
 Aite after about 30 minutes of messing with curl it occured to me to go back to the node app that is running in the pod, and the silly bugger is only listening on port 8080
-OK I updated the pod adding:
+OK I updated the file, did docker build/push, updated the pod definition above to pull the new image 
+Changes to the app.js file:
 var www = http.createServer(handler);
 www.listen(8080);
 www.listen(8443);
 
-But going into the pod I do not see it listening to 8443 I am not spending the time to figure it out. 
+But going into the pod I do not see it listening to 8443 I am not spending the time to figure it out. to make the change I have to update and push the docker image again, I dont wanna
 On to the next steps 
-
 
 One more really handy thing, I can replace the targetPort in the service spec with the name of the port in my pod definition, that way if the containerPort changes I do not have to change it in the service
 For example the targetPorts below were replaced with http and https, the names I gave those ports in pod spec, cool eh?
@@ -1830,3 +1830,270 @@ port: 443
 #+end_example
 
 
+Ok it sounds like a pod can find its service, becuase there are env vars set when a pod gets created,
+If I created the pods and then the service I would need to delete them so they can inherit the service env vars, but these pods have been killed a few times soooo
+I am going to exec into the pods and see what env is set
+
+#+begin_src shell :results raw 
+kubectl exec kubia-42tp2 env
+#+end_src
+
+#+RESULTS:
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+HOSTNAME=kubia-42tp2
+KUBIA_MULTI_SERVICE_HOST=10.103.117.154
+KUBERNETES_PORT_443_TCP_PROTO=tcp
+KUBERNETES_PORT=tcp://10.96.0.1:443
+KUBIA_MULTI_PORT=tcp://10.103.117.154:80
+KUBERNETES_SERVICE_HOST=10.96.0.1
+KUBIA_MULTI_PORT_900_TCP_PORT=900
+KUBERNETES_SERVICE_PORT=443
+KUBERNETES_PORT_443_TCP=tcp://10.96.0.1:443
+KUBERNETES_PORT_443_TCP_PORT=443
+KUBIA_MULTI_PORT_80_TCP_PROTO=tcp
+KUBIA_MULTI_PORT_80_TCP_ADDR=10.103.117.154
+KUBIA_MULTI_SERVICE_PORT_HTTPS=900
+KUBIA_MULTI_PORT_80_TCP=tcp://10.103.117.154:80
+KUBIA_MULTI_PORT_80_TCP_PORT=80
+KUBIA_MULTI_PORT_900_TCP=tcp://10.103.117.154:900
+KUBIA_MULTI_PORT_900_TCP_PROTO=tcp
+KUBIA_MULTI_PORT_900_TCP_ADDR=10.103.117.154
+KUBIA_MULTI_SERVICE_PORT=80
+KUBIA_MULTI_SERVICE_PORT_HTTP=80
+KUBERNETES_SERVICE_PORT_HTTPS=443
+KUBERNETES_PORT_443_TCP_ADDR=10.96.0.1
+NPM_CONFIG_LOGLEVEL=info
+NODE_VERSION=7.10.1
+YARN_VERSION=0.24.4
+HOME=/root
+
+O fancy I see KUBIA_MULTI_SERVICE_HOST=10.103.117.154 and lots of other vars with ports etc
+that means the pod came up with an env var pointing to its service
+
+K8s come with built in dns servers if we had a backend-database pod, any pod on the cluster can find it with, lets look at a backend-database service:
+backend-database.default.svc.cluster.local
+
+backend-database = service name
+default = namespace
+svc.cluster.local = configurable cluster domain suffics
+
+if the service is in the same namespace as the pod that needs ityou only need backend-database, how badass is that any service you start is automatically added to internal dns
+
+Lets go look at it for a bit, lets exec into a container and see what we find curlining things by their dns names
+
+O bother this is interactive so cant do here, going to run this from cli, might even follow up with a couple of curls like we did above
+#+begin_src shell :results raw
+kubectl exec -it kubia-42tp2 bash 
+#+end_src
+
+#+RESULTS:
+
+OK here is some output from a few tests I did in shell
+#+begin_example
+$ kubectl exec -it kubia-42tp2 -- bash
+root@kubia-42tp2:/# curl http://kubia-multi.default.svc.cluster.local
+You've hit kubia-h8kds
+root@kubia-42tp2:/# curl http://kubia-multi.default
+You've hit kubia-h8kds
+root@kubia-42tp2:/# curl http://kubia-multi
+You've hit kubia-rcvn9
+root@kubia-42tp2:/# cat /etc/resolv.conf
+nameserver 10.96.0.10
+search default.svc.cluster.local svc.cluster.local cluster.local
+#+end_example
+
+Note each pod gets /etc/resolv.conf updated so it first tries the clusterDNS
+
+Just to be silly lets run the above commands using the same exec we did earlier, gonna pile them all in the same codeblock
+
+
+#+begin_src shell :results raw
+    kubectl exec kubia-42tp2 -- curl -s http://kubia-multi.default.svc.cluster.local
+    kubectl exec kubia-42tp2 -- curl -s http://kubia-multi.default
+    kubectl exec kubia-42tp2 -- curl -s http://kubia-multi
+    kubectl exec kubia-42tp2 -- cat /etc/resolv.conf
+#+end_src
+
+#+RESULTS:
+You've hit kubia-h8kds
+You've hit kubia-rcvn9
+You've hit kubia-h8kds
+nameserver 10.96.0.10
+search default.svc.cluster.local svc.cluster.local cluster.local
+options ndots:5
+
+NICE, did I mention I love doing this in org?
+
+ALSO important thing to remember, you can not ping service ips, that is because service ips are virtual ips and only has meaning when it is combined with the service port
+
+Services can also be pointed to services running outside of the cluster. 
+If you connect a service to an external service you get to take advantage of load balancing and service discovery
+This means that pods in the cluster can now take advantage of external services the same way they would for internal service.
+
+
+** service endpoints
+These sit between services and the resource it is pointing to, lets go describe our service to see if we can see endpoints
+
+#+begin_src shell :results raw
+kubectl describe svc kubia-multi
+#+end_src
+
+#+RESULTS:
+Name:              kubia-multi
+Namespace:         default
+Labels:            <none>
+Annotations:       Selector:  app=kubia
+Type:              ClusterIP
+IP:                10.103.117.154
+Port:              http  80/TCP
+TargetPort:        8080/TCP
+Endpoints:         172.17.0.10:8080,172.17.0.8:8080,172.17.0.9:8080
+Port:              https  900/TCP
+TargetPort:        8443/TCP
+Endpoints:         172.17.0.10:8443,172.17.0.8:8443,172.17.0.9:8443
+Session Affinity:  None
+Events:            <none>
+
+
+The selector above is used to populate the endpoints, it is a list of IP's and ports, endpoints is like any other k8s resource, lets go use kubectl to get the endpoints
+#+begin_src shell :results raw
+kubectl get endpoints kubia-multi 
+#+end_src
+
+#+RESULTS:
+NAME          ENDPOINTS                                                      AGE
+kubia-multi   172.17.0.10:8443,172.17.0.8:8443,172.17.0.9:8443 + 3 more...   5h55m
+
+Curious what it looks like if we try to describe those? me to :)
+#+begin_src shell :results raw
+kubectl describe endpoints kubia-multi 
+#+end_src
+
+#+RESULTS:
+Name:         kubia-multi
+Namespace:    default
+Labels:       <none>
+Annotations:  endpoints.kubernetes.io/last-change-trigger-time: 2020-11-24T02:55:59Z
+Subsets:
+  Addresses:          172.17.0.10,172.17.0.8,172.17.0.9
+  NotReadyAddresses:  <none>
+  Ports:
+    Name   Port  Protocol
+    ----   ----  --------
+    https  8443  TCP
+    http   8080  TCP
+
+Events:  <none>
+
+NICE, damn I love this platform, that is so clean. 
+
+You can create a service without a selector, but that means the endpoints will not be populated
+Lets go set one up that has no selector to see how we add endpoints
+
+#+begin_src yaml :tangle yaml/external-service.yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: external-service
+  spec:
+    ports:
+    - port: 80
+#+end_src
+
+Now because there is no selector no endpoints will be created, but we want to point it to a external service so that is good, lets go define our own endpoints
+#+begin_src yaml :tangle yaml/external-service-endpoints.yaml
+  apiVersion: v1
+  kind: Endpoints
+  metadata:
+    name: external-service
+  subsets:
+    - addresses:
+      - ip: 11.11.11.11
+      - ip: 22.22.22.22
+      ports:
+      - port: 80
+ #+end_src
+ VERY IMPORTANT: notice that the enpoint has the same name as the service
+
+once the above 2 have been applied we can poll the external service from any pod. If a pod comes up after the service was created it will have env for that service or else we can use dns
+This is amazing, if you ever move the external services into the cluster simply add a selector
+
+Another badass bit is that you can simply refer to the service by its external FQDN
+here is a quick example
+#+begin_src yaml :tangle yaml/external-service-externalname.yaml
+  apiVersion: v1
+  kind: Service
+  metadata: 
+    name: external-service
+  spec:
+    type: ExternalName
+    externalName: someapi.somecompany.com
+    ports:
+    - port: 80
+#+end_src
+One thing to note this kind of service will bypass the service proxy layer, pods will simply get directly forwarded to the external FQDN mening it will not even get a clusterIP
+
+** exposing your service to the world
+3 ways:
+- NodePort: each node opens a port that will redirect all traffic to pods that are part of the service
+- LoadBalancer: same as NodePort, but using a cloud provider lb to point to traffic to the nodePort accross all nodes
+- Ingress: This will allow you to expose multiple services through a single ip, much more like a NAT 
+
+lets go manually define a nodeport:
+#+begin_src yaml :tangle yaml/kubia-svc-nodeport.yaml
+apiVersion: v1 
+kind: Service
+metadata:
+  name: kubia-nodeport
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    targetPort: 8080
+    nodePort: 30123
+  selector:
+    app: kubia
+#+end_src
+
+Ok lets go apply
+#+begin_src shell :results raw
+kubectl apply -f yaml/kubia-svc-nodeport.yaml 
+#+end_src
+
+#+RESULTS:
+service/kubia-nodeport created
+
+#+begin_src shell :results raw 
+kubectl get svc kubia-nodeport
+#kubectl get po --selector=app=kubia
+#+end_src
+
+#+RESULTS:
+NAME             TYPE       CLUSTER-IP    EXTERNAL-IP   PORT(S)        AGE
+kubia-nodeport   NodePort   10.98.80.58   <none>        80:30123/TCP   5m3s
+NAME          READY   STATUS    RESTARTS   AGE
+kubia-42tp2   1/1     Running   0          7h2m
+kubia-h8kds   1/1     Running   0          7h2m
+kubia-rcvn9   1/1     Running   0          7h2m
+
+#+begin_src shell :results raw
+minikube ip
+#+end_src
+
+#+RESULTS:
+192.168.64.2
+
+
+#+begin_src shell :results raw
+curl http://192.168.64.2:30123
+#+end_src
+
+#+RESULTS:
+You've hit kubia-42tp2
+
+one thing to think about when you do this in the cloud you need to remember to add firewall rules, thought this was interesting way to do it in gcloud
+#+begin_example
+gcloud compute firewall-rules create kubia-svc-rule --allow=tcp:30123
+#+end_example
+
+Got to chapter 5 page 138 "Using JSONPath to get the IPs of all your nodes
