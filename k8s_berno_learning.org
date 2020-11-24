@@ -41,7 +41,7 @@ I got to introducint the main parts of a pod definition on the bottom or page 62
 
 * lets create a YAML descriptor for a pod
 I would like to create the file here and then tangle it out, lets try
-#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/kubia-manual.yaml
+#+begin_src yaml :tangle yaml/kubia-manual.yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -789,7 +789,7 @@ Lets go create one so we can look at the anatomy
             - containerPort: 8080
     #+end_src
 
-Tangled out the yaml with my trusty ,bt it still make sme happy, what can I say
+Tangled out the yaml with my trusty ,bt it still makes me happy, what can I say
 Ok lets go apply the new yaml and see if we get 3 new instances of kubia running
 TIP: if you do not define the selector in rc spec it will be derived from pod template
 no need to add it.
@@ -1602,4 +1602,231 @@ NAME                         COMPLETIONS   DURATION   AGE
 batch-job                    1/1           2m6s       23h
 multi-completion-batch-job   5/5           6m20s      26m
 
-Finished chapter 4, I am at the start of chapter 5 p120 Services: enabling clients to discover and talk to pods 
+* Services
+Services allows k8s to assign a singel ip/port to multiple pods. It can be external or internal, but the point is to give requests a single place to look for pods etc fronted by a service
+We used kubectl expose earlier to give us access to the kubia pods, expose is a simple way to use kubectl to create a service
+
+Now lets build a service manually
+
+
+#+begin_src yaml :tangle yaml/kubia-svc.yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: kubia
+  spec:
+    ports:
+    - port: 80
+      targetPort: 8080
+    selector:
+      app: kubia
+#+end_src
+
+#+begin_src shell :results raw
+  kubectl create -f yaml/kubia-svc.yaml
+#+end_src
+
+#+RESULTS:
+service/kubia created
+
+
+#+begin_src shell :results raw
+  kubectl get svc
+#+end_src
+
+#+RESULTS:
+NAME         TYPE        CLUSTER-IP    EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.96.0.1     <none>        443/TCP   11d
+kubia        ClusterIP   10.103.5.57   <none>        80/TCP    39s
+
+You can see it only has an internal cluster-ip, that is because the primary purpose of service is to expose groups of pods to other pods
+ok I no longer have any of the pods running, lets re-apply our replication controller we deleted
+#+begin_src shell :results raw
+kubectl create -f yaml/kubia-rc.yaml 
+#+end_src
+
+#+RESULTS:
+replicationcontroller/kubia created
+
+#+begin_src shell :results raw
+kubectl get pods
+#+end_src
+
+#+RESULTS:
+NAME                               READY   STATUS      RESTARTS   AGE
+batch-job-rmf74                    0/1     Completed   0          6d12h
+kubia-76n42                        1/1     Running     0          59s
+kubia-8889t                        1/1     Running     0          59s
+kubia-rq4j6                        1/1     Running     0          59s
+multi-completion-batch-job-765n2   0/1     Completed   0          5d13h
+multi-completion-batch-job-9x6qn   0/1     Completed   0          5d13h
+multi-completion-batch-job-l9pn5   0/1     Completed   0          5d13h
+multi-completion-batch-job-rkdc2   0/1     Completed   0          5d13h
+multi-completion-batch-job-tvwp9   0/1     Completed   0          5d13h
+
+OK we have 3 running pods. Now how do we see if they are working if there is no external ip, 3 ways
+- Create a pod that can query the service and log results
+- ssh into the node and then curl
+- kubectl exec into a pod and try from there
+I am going to try the exec route
+
+#+begin_src shell :results raw
+kubectl exec kubia-76n42 -- curl -s http://10.103.5.57
+#+end_src
+
+#+RESULTS:
+You've hit kubia-rq4j6
+You've hit kubia-8889t
+You've hit kubia-rq4j6
+You've hit kubia-rq4j6
+You've hit kubia-8889t
+
+NICE, love exec such a simple way to run things on a pod
+I ran the command a few times, As we can see it hits the pods randomly as the service round robins 
+
+Why the double dash?
+The double dash (--) in the command signals the end of command options for kubectl everything after the -- is what we are executing in the pod
+
+you do not have to use the -- but any - that shows up will be treated as a kubectl flag
+
+Ok, but can I add afinity so I will always hit the same pod? yes, yes I can simply add
+#+begin_example
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubia
+spec:
+  sessionAffinity: ClientIP
+#+end_example
+This makes the service proxy redirect all requests originating from the same client IP to the same pod
+There is only 2 types of affinity, clientIP and none, there is no cookie based affinity because service is tcp and UDP but cookies is a http construct
+
+Now lets go create a service with multiple ports
+
+#+begin_src yaml :tangle yaml/kubia-svc-multi-port.yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: kubia-multi
+  spec:
+    ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+    - name: https
+      port: 900
+      targetPort: 8443
+    selector:
+      app: kubia
+#+end_src
+
+Lets go add multiple ports to our pods
+
+#+begin_src yaml :tangle yaml/kubia-rc-multi.yaml
+  apiVersion: v1
+  kind: ReplicationController
+  metadata:
+    name: kubia
+  spec:
+    replicas: 3
+    selector:
+      app: kubia
+    template:
+      metadata:
+        labels:
+          app: kubia
+      spec:
+        containers: 
+        - name: kubia
+          image: bernokl/kubia-multi-port
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8443
+              name: https
+#+end_src
+
+OK I first need to go delete the service we have
+#+begin_src shell :results raw
+kubectl apply -f yaml/kubia-svc-multi-port.yaml 
+kubectl apply -f yaml/kubia-rc-multi.yaml 
+#+end_src
+
+#+RESULTS:
+service/kubia-multi created
+replicationcontroller/kubia created
+service "kubia-multi" deleted
+replicationcontroller "kubia" deleted
+replicationcontroller/kubia created
+service/kubia-multi created
+
+
+#+begin_src shell :results raw
+kubectl get svc
+#+end_src
+
+#+RESULTS:
+NAME          TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)          AGE
+kubernetes    ClusterIP   10.96.0.1        <none>        443/TCP          12d
+kubia-multi   ClusterIP   10.103.117.154   <none>        80/TCP,900/TCP   5s
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.96.0.1    <none>        443/TCP   12d
+NAME          TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)          AGE
+kubernetes    ClusterIP   10.96.0.1      <none>        443/TCP          12d
+kubia-multi   ClusterIP   10.107.93.75   <none>        80/TCP,900/TCP   4s
+
+#+begin_src shell :results raw
+kubectl get pods
+#+end_src
+
+#+RESULTS:
+NAME                               READY   STATUS      RESTARTS   AGE
+batch-job-rmf74                    0/1     Completed   0          6d16h
+kubia-42tp2                        1/1     Running     0          18s
+kubia-h8kds                        1/1     Running     0          18s
+kubia-rcvn9                        1/1     Running     0          18s
+NAME                               READY   STATUS        RESTARTS   AGE
+batch-job-rmf74                    0/1     Completed     0          6d16h
+kubia-4hhrj                        0/1     Terminating   0          62m
+NAME                               READY   STATUS              RESTARTS   AGE
+batch-job-rmf74                    0/1     Completed           0          6d15h
+kubia-4hhrj                        0/1     ContainerCreating   0          5s
+kubia-d6d6q                        1/1     Running             0          5s
+kubia-rfzl9                        0/1     ContainerCreating   0          5s
+
+#+begin_src shell :results raw
+# this one times out 
+    kubectl exec kubia-42tp2 -- curl -k  http://10.103.117.154:900
+# this one works
+    kubectl exec kubia-42tp2 -- curl -k  http://10.103.117.154
+#+end_src
+
+#+RESULTS:
+You've hit kubia-rcvn9
+
+Aite after about 30 minutes of messing with curl it occured to me to go back to the node app that is running in the pod, and the silly bugger is only listening on port 8080
+OK I updated the pod adding:
+var www = http.createServer(handler);
+www.listen(8080);
+www.listen(8443);
+
+But going into the pod I do not see it listening to 8443 I am not spending the time to figure it out. 
+On to the next steps 
+
+
+One more really handy thing, I can replace the targetPort in the service spec with the name of the port in my pod definition, that way if the containerPort changes I do not have to change it in the service
+For example the targetPorts below were replaced with http and https, the names I gave those ports in pod spec, cool eh?
+#+begin_example
+apiVersion: v1
+kind: Service
+spec:
+  ports:
+  - name: http
+port: 80
+    targetPort: http
+  - name: https
+port: 443
+    targetPort: https
+#+end_example
+
+

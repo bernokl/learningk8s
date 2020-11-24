@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: kubia
+spec:
+  replicas: 3
+  selector:
+    app: kubia
+  template:
+    metadata:
+      labels:
+        app: kubia
+    spec:
+      containers: 
+      - name: kubia
+        image: bernokl/kubia-multi-port
+        ports:
+          - containerPort: 8080
+            name: http
+          - containerPort: 8443
+            name: https
