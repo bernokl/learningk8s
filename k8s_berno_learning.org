@@ -2450,3 +2450,225 @@ You've hit kubia-42tp2
 #+end_example
 
 Got to 5.5 Signaling when a pod is ready to accept connections
+
+**** Readiness probes
+Same as liveness probes k8s allows you to define a readiness probe, it determines whether a pod is ready for client requests
+Types of readiness probes
+- exec, a process is executed, the status is determined by that processes exit status code
+- HTTP GET probe sends HTTP get request tot eh container, the HTTP status codes determines the status
+- A TCP socket probe which opens a TCP connection to a specified port, if the connection is established the container is considered ready
+
+An important distinction between readiness probes and liveness probes, when a readiness probe fail the container does not get killed and repled like it does with liveness
+The pod is just removed from the endpoints object so it will not receive traffic so it does not get traffic until it recovers
+
+Remember you can edit live configs with
+#+begin_example
+kubectl edit rc kubia
+#+end_example
+I am not doing it here becuase it opens a new interactive window to make the update one
+Here is what I am adding
+#+begin_example
+apiVersion: v1
+kind: ReplicationController
+...
+spec:
+  ...
+  template:
+... spec:
+      containers:
+      - name: kubia
+        image: luksa/kubia
+        readinessProbe:
+          exec:
+            command:
+            - ls
+            - /var/ready
+#+end_example
+
+This gives us a readiness probe we can easilly manipulate, if the file exists the pod will run if it is deleted it will fail
+One thing to note that updating the ReplicationController pod definition is not causing existing pods to fail, they will only fail once they get re-created
+
+#+begin_src shell :results raw
+kubectl get po 
+#+end_src
+
+#+RESULTS:
+NAME          READY   STATUS    RESTARTS   AGE
+kubia-42tp2   1/1     Running   0          25h
+kubia-h8kds   1/1     Running   0          25h
+kubia-rcvn9   1/1     Running   0          25h
+
+Lets delete one and see if it changes when it comes back
+
+#+begin_src shell :results raw
+kubectl delete po kubia-42tp2
+#+end_src
+
+#+RESULTS:
+pod "kubia-42tp2" deleted
+
+#+begin_src shell :results raw
+kubectl get po 
+#+end_src
+
+#+RESULTS:
+NAME          READY   STATUS    RESTARTS   AGE
+kubia-h8kds   1/1     Running   0          25h
+kubia-nj8kd   0/1     Running   0          6m5s
+kubia-rcvn9   1/1     Running   0          25h
+
+O snap it is no longer ready, lets go touch the file
+
+#+begin_src shell :results raw
+kubectl exec kubia-nj8kd -- touch /var/ready 
+#+end_src
+
+#+RESULTS:
+
+#+begin_src shell :results raw
+kubectl get po 
+#+end_src
+
+#+RESULTS:
+NAME          READY   STATUS    RESTARTS   AGE
+kubia-h8kds   1/1     Running   0          25h
+kubia-nj8kd   1/1     Running   0          7m33s
+kubia-rcvn9   1/1     Running   0          25h
+
+Ahhh it is back the probe works! how cool is that?
+
+lets see if I cause the other two to fail, will I ever hit them?
+Gonna try a few commands in a row, lets see how we go
+
+#+begin_src shell :results raw
+kubectl delete po kubia-h8kds
+kubectl delete po kubia-rcvn9
+kubectl get po 
+#+end_src
+
+#+RESULTS:
+pod "kubia-h8kds" deleted
+pod "kubia-rcvn9" deleted
+NAME          READY   STATUS    RESTARTS   AGE
+kubia-dh8kt   0/1     Running   0          74s
+kubia-nj8kd   1/1     Running   0          12m
+kubia-zbk5r   0/1     Running   0          32s
+
+#+begin_src shell :results raw
+curl http://192.168.64.2:30123
+curl http://192.168.64.2:30123
+curl http://192.168.64.2:30123
+curl http://192.168.64.2:30123
+curl http://192.168.64.2:30123
+#+end_src
+
+#+RESULTS:
+You've hit kubia-nj8kd
+You've hit kubia-nj8kd
+You've hit kubia-nj8kd
+You've hit kubia-nj8kd
+You've hit kubia-nj8kd
+
+As expected we only hit the healthy pods, that is good to confirm 
+#+begin_src shell :results raw
+kubectl exec kubia-dh8kt -- touch /var/ready 
+kubectl exec kubia-zbk5r -- touch /var/ready 
+#+end_src
+
+#+RESULTS:
+
+#+begin_src shell :results raw
+kubectl get po 
+#+end_src
+
+#+RESULTS:
+NAME          READY   STATUS    RESTARTS   AGE
+kubia-dh8kt   1/1     Running   0          13m
+kubia-nj8kd   1/1     Running   0          25m
+kubia-zbk5r   1/1     Running   0          12m
+
+#+begin_src shell :results raw
+curl http://192.168.64.2:30123
+curl http://192.168.64.2:30123
+curl http://192.168.64.2:30123
+curl http://192.168.64.2:30123
+curl http://192.168.64.2:30123
+#+end_src
+
+#+RESULTS:
+You've hit kubia-nj8kd
+You've hit kubia-dh8kt
+You've hit kubia-dh8kt
+You've hit kubia-dh8kt
+You've hit kubia-zbk5r
+
+Aaannndd hit them all, sweet
+
+An easy way to remove a single pod is to just label it as enabled
+Add the label to my rc label selector
+#+begin_src shell :results value verbatim
+kubectl label po kubia-zbk5r enabled=true --overwrite 
+#+end_src
+
+#+RESULTS:
+: pod/kubia-zbk5r labeled
+
+#+begin_src shell :results value verbatim
+kubectl get po --show-labels -n default 
+#+end_src
+
+#+RESULTS:
+: NAME          READY   STATUS    RESTARTS   AGE   LABELS
+: kubia-dh8kt   1/1     Running   0          27m   app=kubia,enabled=false
+: kubia-nj8kd   1/1     Running   0          38m   app=kubia,enabled=true
+: kubia-zbk5r   1/1     Running   0          26m   app=kubia,enabled=true
+
+#+begin_src shell :results raw
+kubectl get rc 
+#+end_src
+
+#+RESULTS:
+NAME    DESIRED   CURRENT   READY   AGE
+kubia   3         3         3       25h
+
+#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/kubia-rc.yaml
+  apiVersion: v1
+  kind: ReplicationController
+  metadata:
+    name: kubia
+  spec:
+    replicas: 3
+    selector:
+      app: kubia
+      enabled: true
+    template:
+      metadata:
+        labels:
+          app: kubia
+      spec:
+        containers: 
+        - name: kubia
+          image: bernokl/kubia
+          ports:
+            - containerPort: 8080
+    #+end_src
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/kubia-rc.yaml 
+#+end_src
+
+#+RESULTS:
+
+#+begin_src shell :results raw
+kubectl get po
+#+end_src
+
+#+RESULTS:
+NAME          READY   STATUS    RESTARTS   AGE
+kubia-dh8kt   1/1     Running   0          32m
+kubia-nj8kd   1/1     Running   0          44m
+kubia-zbk5r   1/1     Running   0          32m
+
+mmmm I would have thought it would fail, i am not sure, not really in the mood to troubleshoot it, to me that looks like it should have failed
+
+I got down to ALWAYS DEFINE A READINESS PROBE under 5.5.3

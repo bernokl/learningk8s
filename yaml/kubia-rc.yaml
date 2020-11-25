@@ -16,3 +16,23 @@ spec:
         image: bernokl/kubia
         ports:
           - containerPort: 8080
+
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: kubia
+spec:
+  replicas: 3
+  selector:
+    app: kubia
+    enabled: true
+  template:
+    metadata:
+      labels:
+        app: kubia
+    spec:
+      containers: 
+      - name: kubia
+        image: bernokl/kubia
+        ports:
+          - containerPort: 8080
