@@ -2039,6 +2039,9 @@ One thing to note this kind of service will bypass the service proxy layer, pods
 - LoadBalancer: same as NodePort, but using a cloud provider lb to point to traffic to the nodePort accross all nodes
 - Ingress: This will allow you to expose multiple services through a single ip, much more like a NAT 
 
+KEEP IN MIND ALL 3 IS A TYPE OF SERVICE!
+
+*** NodePort 
 lets go manually define a nodeport:
 #+begin_src yaml :tangle yaml/kubia-svc-nodeport.yaml
 apiVersion: v1 
@@ -2096,4 +2099,354 @@ one thing to think about when you do this in the cloud you need to remember to a
 gcloud compute firewall-rules create kubia-svc-rule --allow=tcp:30123
 #+end_example
 
-Got to chapter 5 page 138 "Using JSONPath to get the IPs of all your nodes
+Something really handy, files can ge output to all sorts of formats, one to remember is jasonpath which allows you to specify the element you want to see
+This example will get the ips of all our nodes
+
+#+begin_src shell :results raw
+  #kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="ExternalIP")].address}'
+  kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="ExternalIP")].address}'
+#+end_src
+
+#+RESULTS:
+
+mkay, not sure why it is not working, but you can read more about jsonpath on http://kubernetes.io/docs/user-guide/jsonpath 
+basically allows you to traverse json like xpath lets you traverse xml
+
+I suspect it is because I am using minikube.. ONWARDS!
+
+*** LoadBalancer
+k8s will provision a cloud provided loadbalancer automatically, because I am working on minikube, I am not going to try this, but will revisit it at some point
+
+#+begin_src yaml :tangle yaml/kubia-svc-loadbalancer.yaml
+apiVersion: v1 
+kind: Service
+metadata:
+  name: kubia-loadbalancer
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+  selector:
+    app: kubia
+#+end_src
+now I am curious, lets tangle this sucker, apply it and see what happens
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/kubia-svc-loadbalancer.yaml 
+#+end_src
+
+#+RESULTS:
+service/kubia-loadbalancer created
+
+Wut!?!?
+ok lets go see what that means
+
+#+begin_src shell :results raw
+kubectl get svc kubia-loadbalancer
+#+end_src
+
+#+RESULTS:
+NAME                 TYPE           CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+kubia-loadbalancer   LoadBalancer   10.100.52.153   <pending>     80:30435/TCP   67s
+
+aite it is pending a external ip, lets give it 5 minutes and then come back to this see if it managed to create something, can not think how, but this is fun.
+
+One thing to note is that LB is just an extention of nodeport (NP) if you set up lb, you will still end up with open ports on nodes that you can access as long as firewall rules are set
+LB is better than NP, because browsing directly to nodes means the node has to be up, but with LB if one node fails it will just point at a different one
+
+One thing to note the nodeport service runs on all nodes, but it will redirect traffic to any other node so it could mean an extra network hop, force nodeport to always forward
+traffic to itself first to avoid that extra hop, to do this you just add the following to the spec
+#+begin_example
+spec:
+  externalTrafficPolicy: Local
+#+end_example
+This also helps with preservation of the client ip, if you allow the extra hop the ip the call is coming from is the nodedport node it hit, but if it is local it will preserve the clientip
+
+*** Ingress
+Ingress is a singe entry point into the cluster
+Ingress will allow multiple services on a single IP
+Ingress operates at the application level (HTTP) and can provide things like cookie-based affinity which services can not do
+
+Ingress is not a default feature, but we can enable it, lets go see
+#+begin_src shell :results raw
+minikube addons list 
+#+end_src
+
+#+RESULTS:
+|-----------------------------+----------+------------|
+| ADDON NAME                  | PROFILE  | STATUS     |
+|-----------------------------+----------+------------|
+| ambassador                  | minikube | disabled   |
+| csi-hostpath-driver         | minikube | disabled   |
+| dashboard                   | minikube | enabled ✅ |
+| default-storageclass        | minikube | enabled ✅ |
+| efk                         | minikube | disabled   |
+| freshpod                    | minikube | disabled   |
+| gcp-auth                    | minikube | disabled   |
+| gvisor                      | minikube | disabled   |
+| helm-tiller                 | minikube | disabled   |
+| ingress                     | minikube | enabled ✅ |
+| ingress-dns                 | minikube | disabled   |
+| istio                       | minikube | disabled   |
+| istio-provisioner           | minikube | disabled   |
+| kubevirt                    | minikube | disabled   |
+| logviewer                   | minikube | disabled   |
+| metallb                     | minikube | disabled   |
+| metrics-server              | minikube | disabled   |
+| nvidia-driver-installer     | minikube | disabled   |
+| nvidia-gpu-device-plugin    | minikube | disabled   |
+| olm                         | minikube | disabled   |
+| pod-security-policy         | minikube | disabled   |
+| registry                    | minikube | enabled ✅ |
+| registry-aliases            | minikube | disabled   |
+| registry-creds              | minikube | disabled   |
+| storage-provisioner         | minikube | enabled ✅ |
+| storage-provisioner-gluster | minikube | disabled   |
+| volumesnapshots             | minikube | disabled   |
+|-----------------------------+----------+------------|
+
+OO it looks like the ingress is already enabled, must have changed in the last few versions, just as a note to enable a addon use the following format
+#+begin_example
+minikube addons enable ingress
+#+end_example
+
+Lets go see if we can find the ingress pod
+#+begin_src shell :results raw 
+kubectl get po -A
+#+end_src
+
+#+RESULTS:
+NAMESPACE              NAME                                        READY   STATUS      RESTARTS   AGE
+default                kubia-42tp2                                 1/1     Running     0          17h
+default                kubia-h8kds                                 1/1     Running     0          17h
+default                kubia-rcvn9                                 1/1     Running     0          17h
+kube-system            coredns-66bff467f8-96gv4                    1/1     Running     2          96d
+kube-system            etcd-minikube                               1/1     Running     1          20d
+kube-system            ingress-nginx-admission-create-fpcvv        0/1     Completed   0          96d
+kube-system            ingress-nginx-admission-patch-6qfcz         0/1     Completed   0          96d
+kube-system            ingress-nginx-controller-799dcd5d57-cmd68   1/1     Running     1          20d
+kube-system            kube-apiserver-minikube                     1/1     Running     2          96d
+kube-system            kube-controller-manager-minikube            1/1     Running     2          96d
+kube-system            kube-proxy-d892r                            1/1     Running     2          96d
+kube-system            kube-scheduler-minikube                     1/1     Running     2          96dG
+kube-system            registry-65xp4                              1/1     Running     2          96d
+kube-system            registry-proxy-dqn2b                        1/1     Running     2          96d
+kube-system            storage-provisioner                         1/1     Running     8          96d
+kubernetes-dashboard   dashboard-metrics-scraper-dc6947fbf-bp98k   1/1     Running     1          20d
+kubernetes-dashboard   kubernetes-dashboard-58b79879c5-2w2wl       1/1     Running     2          20d
+
+
+There it is I see the ingress-nginx-controller running
+It looks like it is based on nginx, lets go see if we can add a ingress resource to our cluster
+
+Note the type is ingress not service, even though it is a service
+#+begin_src yaml :tangle yaml/kubia-ingress.yaml
+    apiVersion: networking.k8s.io/v1 
+    kind: Ingress
+    metadata:
+      name: kubiaingress
+    spec:
+      rules:
+      - host: kubia.example.com
+        http:
+          paths:
+          - path: /
+            backend:
+              service:
+               name: kubia-nodeport
+               port: 80
+#+end_src
+
+This defines an Ingress with a single rule, which makes sure all HTTP requests received by the Ingress controller, in which the host kubia.example.com is requested, will be sent to the kubia-nodeport service on port 80.
+Note that even though we are tying it to a service, this is not required by k8s 
+
+ok lets apply this bad boy
+#+begin_src shell :results raw
+kubectl apply -f yaml/kubia-ingress.yaml 
+#+end_src
+
+#+RESULTS:
+ingress.extensions/kubiaingress created
+
+#+begin_src shell :results raw
+kubectl get ingress
+#+end_src
+
+#+RESULTS:
+NAME           CLASS    HOSTS               ADDRESS        PORTS   AGE
+kubiaingress   <none>   kubia.example.com   192.168.64.2   80      13m
+
+Do you know what you just did? you made an ingress, if you add /etc/hosts entry to have that address point to that host you can now get to pods through http:kubia.example.com  ..... can I have a woop woop?
+
+For gigles lets do it with curl
+#+begin_src shell :results raw
+curl http://kubia.example.com 
+#+end_src
+
+#+RESULTS:
+You've hit kubia-rcvn9
+
+yeah I did! HA!
+
+And here you see how to add mutltiple services to the ingress
+#+begin_example
+- host: kubia.example.com
+http: paths:
+      - path: /kubia
+        backend:
+          serviceName: kubia
+          servicePort: 80
+      - path: /foo
+        backend:
+          serviceName: bar
+          servicePort: 80
+#+end_example
+In this example both still come in on kubia.example, but will be redirected based on the path in the url
+Lets see wht it looks like if there are multiple HTTP requests
+#+begin_example
+spec: rules:
+  - host: foo.example.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: foo
+          servicePort: 80
+  - host: bar.example.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: bar
+          servicePort: 80
+#+end_example
+
+**** Configuring the ingress to hanle tls
+pods typically do not get tls termination the ingress handles all TLS, lets give it a go
+#+begin_src shell :results raw
+  openssl genrsa -out tls.key 2048 
+openssl req -new -x509 -key tls.key -out tls.cert -days 360 -subj /CN=kubia.example.com
+#+end_src
+
+#+RESULTS:
+
+ok that did not work here, so I ran it in cli and I see the two files, lets go create secrets with it.
+#+begin_src shell :results raw
+kubectl create secret tls tls-secret --cert=tls.cert --key=tls.key 
+#+end_src
+
+#+RESULTS:
+secret/tls-secret created
+
+
+###+begin_src yaml :tangle yaml/kubia-ingress-tls.yaml
+  apiVersion: extensions/v1beta1
+  kind: Ingress
+  metadata:
+    name: kubiaingress
+  spec:
+    tls:
+    - hosts:
+      - kubia.example.com
+      secretName: tls-secret
+    rules:
+      - host: kubia.example.com
+        http:
+          paths:
+          - path: /
+            backend:
+              serviceName: kubia-nodeport:
+              servicePort: 80
+###+end_src
+
+#+begin_src yaml :tangle yaml/kubia-ingress-tls.yaml
+  apiVersion: networking.k8s.io/v1beta1
+  kind: Ingress
+  metadata:
+    name: kubiaingress
+  spec:
+    tls:
+      - hosts:
+        - kubia.example.com
+        secretName: tls-secret
+    rules:
+      - host: kubia.example.com
+        http:
+          paths:
+          - path: /
+            backend:
+              serviceName: kubia-nodeport
+              servicePort: 80
+#+end_src
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/kubia-ingress-tls.yaml 
+#+end_src
+
+#+RESULTS:
+ingress.networking.k8s.io/kubiaingress configured
+ingress.networking.k8s.io "kubia" deleted
+ingress.networking.k8s.io/kubia created
+
+#+begin_src shell :results raw
+kubectl get ingress
+#+end_src
+
+#+RESULTS:
+NAME           CLASS    HOSTS               ADDRESS        PORTS     AGE
+kubiaingress   <none>   kubia.example.com   192.168.64.2   80, 443   4h41m
+
+Nice, I see 443 Lets test
+#+begin_src shell :results raw
+curl -k -v https://kubia.example.com/kubia 
+#+end_src
+
+#+RESULTS:
+#+begin_example 
+*   Trying 192.168.64.2...
+* TCP_NODELAY set
+* Connected to kubia.example.com (192.168.64.2) port 443 (#0)
+* ALPN, offering h2
+* ALPN, offering http/1.1
+* Cipher selection: ALL:!EXPORT:!EXPORT40:!EXPORT56:!aNULL:!LOW:!RC4:@STRENGTH
+* successfully set certificate verify locations:
+*   CAfile: /etc/ssl/cert.pem
+  CApath: none
+* TLSv1.2 (OUT), TLS handshake, Client hello (1):
+* TLSv1.2 (IN), TLS handshake, Server hello (2):
+* TLSv1.2 (IN), TLS handshake, Certificate (11):
+* TLSv1.2 (IN), TLS handshake, Server key exchange (12):
+* TLSv1.2 (IN), TLS handshake, Server finished (14):
+* TLSv1.2 (OUT), TLS handshake, Client key exchange (16):
+* TLSv1.2 (OUT), TLS change cipher, Client hello (1):
+* TLSv1.2 (OUT), TLS handshake, Finished (20):
+* TLSv1.2 (IN), TLS change cipher, Client hello (1):
+* TLSv1.2 (IN), TLS handshake, Finished (20):
+* SSL connection using TLSv1.2 / ECDHE-RSA-AES128-GCM-SHA256
+* ALPN, server accepted to use h2
+* Server certificate:
+*  subject: CN=kubia.example.com
+*  start date: Nov 24 22:41:05 2020 GMT
+*  expire date: Nov 19 22:41:05 2021 GMT
+*  issuer: CN=kubia.example.com
+*  SSL certificate verify result: self signed certificate (18), continuing anyway.
+* Using HTTP2, server supports multi-use
+* Connection state changed (HTTP/2 confirmed)
+* Copying HTTP/2 data in stream buffer to connection buffer after upgrade: len=0
+* Using Stream ID: 1 (easy handle 0x7fe5c800b600)
+> GET /kuia HTTP/2
+> Host: kubia.example.com
+> User-Agent: curl/7.54.0
+> Accept: */*
+>
+* Connection state changed (MAX_CONCURRENT_STREAMS updated)!
+< HTTP/2 200
+< server: nginx/1.19.1
+< date: Wed, 25 Nov 2020 02:06:09 GMT
+<
+You've hit kubia-42tp2
+* Connection #0 to host kubia.example.com left intact
+#+end_example
+
+Got to 5.5 Signaling when a pod is ready to accept connections
