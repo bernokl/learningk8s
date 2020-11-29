@@ -2671,4 +2671,118 @@ kubia-zbk5r   1/1     Running   0          32m
 
 mmmm I would have thought it would fail, i am not sure, not really in the mood to troubleshoot it, to me that looks like it should have failed
 
-I got down to ALWAYS DEFINE A READINESS PROBE under 5.5.3
+So a headless service is if you create a service without a clusterip, it will still be the parent, but instead of single ip for all pods it will create A records with ip's for each backing pod
+This means the client can connect to any of the pods associated with the service based on the individual IPs
+
+Lets go define one just to see what it would look like
+
+
+#+begin_src yaml :tangle /Users/bernokl/projects/k8sInAction/yaml/kubia-svc-headless.yaml
+  apiVersion: v1
+  kind: Service
+  metadata:
+    name: kubia-headless
+  spec:
+    clusterIP: None
+    ports:
+    - port: 80
+      targetPort: 8080
+    selector:
+      app: kubia
+#+end_src
+
+Ok lets go apply it see what we see
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/kubia-svc-headless.yaml
+#+end_src
+
+#+RESULTS:
+service/kubia-headless created
+
+#+begin_src shell :results raw
+kubectl describe svc kubia-headless 
+#+end_src
+
+#+RESULTS:
+Name:              kubia-headless
+Namespace:         default
+Labels:            <none>
+Annotations:       Selector:  app=kubia
+Type:              ClusterIP
+IP:                None
+Port:              <unset>  80/TCP
+TargetPort:        8080/TCP
+Endpoints:         172.17.0.10:8080,172.17.0.11:8080,172.17.0.9:8080
+Session Affinity:  None
+Events:            <none>
+
+
+-----THIS IS AWESOME----
+Directly run a container
+OOOO thisis badass, this will let you run a image in your cluster (in this case I needed something with dnsutils rather than install it on one of the exsisting pods
+I simply run the below to create the single pod that is not backed by RC or anything else
+#+begin_src shell :results raw
+kubectl run dnsutils --image=tutum/dnsutils --generator=run-pod/v1 --command -- sleep infinity
+#+end_src
+
+#+RESULTS:
+pod/dnsutils created
+
+#+begin_src shell :results raw
+kubectl get po
+#+end_src
+
+#+RESULTS:
+NAME          READY   STATUS    RESTARTS   AGE
+dnsutils      1/1     Running   0          43s
+kubia-dh8kt   1/1     Running   0          4d17h
+kubia-nj8kd   1/1     Running   0          4d17h
+kubia-zbk5r   1/1     Running   0          4d17h
+
+k lets hop into our container so we can go do some dns lookups on our new headless service
+#+begin_src shell :results raw
+kubectl exec dnsutils nslookup kubia-headless 
+#+end_src
+
+#+RESULTS:
+Server:		10.96.0.10
+Address:	10.96.0.10#53
+
+Name:	kubia-headless.default.svc.cluster.local
+Address: 172.17.0.11
+Name:	kubia-headless.default.svc.cluster.local
+Address: 172.17.0.10
+Name:	kubia-headless.default.svc.cluster.local
+Address: 172.17.0.9
+
+
+How about them applis instead of a single ip for the service we get the individual pod ips.
+Ok lets see what happens if I look up the same thing for one with a clusterIP
+
+#+begin_src shell :results raw
+kubectl exec dnsutils nslookup kubia-multi
+#+end_src
+
+#+RESULTS:
+Server:		10.96.0.10
+Address:	10.96.0.10#53
+
+Name:	kubia-multi.default.svc.cluster.local
+Address: 10.103.117.154
+
+As expected, nice
+
+In practice a headless service will work exactly the same as a regular service, 
+you can still hit the pods by looking up the service, 
+but instead of the loadbalancing happening at the service level it round robins using DNS round robin
+
+SERVICE TROUBLESHOOTING TIPS
+1) Make sure you can connect to the service clusterIP from inside the cluster not outside
+2) Dont ping the service IP it is a VIP it will not respond
+3) If you defined a readiness probe make sure it is succeeding
+4) To make sure a pod is part of a service by checking endpoints with "kubectl get endpoints"
+5) If accessing it with FQDN ie. myservice.mynamespace.svc.cluster.local, try accessing with the clusterip
+6) Make sure you are connecting on the exposed port and not the targetPort
+7) Try connecting directly to the pod IP to make sure the pod is accepting connections
+8) If you can not get to the app through the pod's IP make sure the app is not only binding to localhost
