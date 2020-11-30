@@ -3141,5 +3141,164 @@ drwxrwxrwt 7 root root   180 Nov 30 11:13 ..
 -rw------- 1  999  999  1247 Nov 30 11:12 WiredTiger.turtle
 #+end_example
 
+There is lots more info on creating persistant cloud storage, there is examples using AWS elastic blocks and even 
+Microsoft Azure, you can use the azureFile or the azureDisk. They all follow the same format. I am using minikube so I am not going further into it
 
-mkay it is after midnight I need to get some rest. I am on page 173 "WRITING DATA TO THE PERSISTENT STORAGE BY ADDING DOCUMENTS TO YOUR MONGODB DATABASE"
+Dont forget to use kubectl explain to get more info on anything you encounter
+
+** persistant Volume
+So next discussion is that you do not really want to set up your volumes as part of a pod, it limits where it runs
+Instead we have the cluster admin set up a persistant volume, the pod will then just have a volumeClaim
+That is agnostic request for storage without worrying about what is connected.
+
+Lets go set up a PersistantVolume
+
+#+begin_src yaml :tangle yaml/mongodb-pv-hostpath.yaml
+  apiVersion: v1
+  kind: PersistentVolume
+  metadata:
+    name: mongodb-pv
+  spec:
+    capacity:
+      storage: 1Gi
+    accessModes:
+      - ReadWriteOnce
+      - ReadOnlyMany
+    persistentVolumeReclaimPolicy: Retain
+    hostPath:
+      path: /tmp/mongodb
+#+end_src
+
+This is an example of what that volume would look like if we were doing it with cloud storage
+#+begin_example
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mongodb-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+  - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  gcePersistentDisk:
+    pdName: mongodb
+    fsType: ext4
+#+end_example
+
+K, pv is tangled lets go apply it and see what hapens
+#+begin_src shell :results raw
+kubectl apply -f yaml/mongodb-pv-hostpath.yaml 
+#+end_src
+
+#+RESULTS:
+persistentvolume/mongodb-pv created
+
+#+begin_src shell :results raw
+kubectl get pv 
+#+end_src
+
+#+RESULTS:
+NAME         CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM   STORAGECLASS   REASON   AGE
+mongodb-pv   1Gi        RWO,ROX        Retain           Available                                   31s
+
+Next we are going to put in a persistentVolumeClaim, pv is not limited to a namespace, pvc is used to assign a volume to a namespace
+you will then use that pvc name in your pods, this allows them to have volumes accross nodes
+
+Lets go put in out PVC
+
+#+begin_src yaml :tangle yaml/mongodb-pvc.yaml
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: mongodb-pvc
+  spec:
+    resources:
+      requests:
+        storage: 1Gi
+    accessModes:
+    - ReadWriteOnce
+    storageClassName: ""
+#+end_src
+Things to note:
+- The name of your claim (under metada)—you’ll need this later when using the claim as the pod’s volume.
+- Size gets defined in here
+- For thsi claim You want the storage to support a single client (performing both reads and writes)
+- The open quotes on storageclassName means it is dynamic provisioning
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/mongodb-pvc.yaml 
+#+end_src
+
+#+RESULTS:
+persistentvolumeclaim/mongodb-pvc created
+
+#+begin_src shell :results raw
+kubectl get pvc
+#+end_src
+
+#+RESULTS:
+NAME          STATUS   VOLUME       CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+mongodb-pvc   Bound    mongodb-pv   1Gi        RWO,ROX                       25s
+
+#+begin_src shell :results raw
+kubectl get pv 
+#+end_src
+
+#+RESULTS:
+NAME         CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                 STORAGECLASS   REASON   AGE
+mongodb-pv   1Gi        RWO,ROX        Retain           Bound    default/mongodb-pvc                           24m
+
+Nice both pvc and pv sees it as bound, also note I did not tell pvc anything about the pv k8s looked for available storage and bound the 2
+Note that ReadWriteOnce pertains to the number of nodes that can attatch not pods, so in this case only one node can attach to the volume
+Also note that the CLAIM includes the namesapce, default in this case
+
+Aite we have a pvc, lets see if we can add it to our pod, I deleted mongodb earlier, lets confirm
+
+#+begin_src shell :results raw
+kubectl get po 
+#+end_src
+
+#+RESULTS:
+NAME                 READY   STATUS    RESTARTS   AGE
+dnsutils             1/1     Running   0          25h
+fortune              2/2     Running   0          19h
+gitrepo-volume-pod   1/1     Running   0          13h
+kubia-dh8kt          1/1     Running   0          5d18h
+kubia-nj8kd          1/1     Running   0          5d18h
+kubia-zbk5r          1/1     Running   0          5d18h
+
+Looks good to me
+#+begin_src yaml :tangle yaml/mongodb-pod-pvc.yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: mongodb
+  spec:
+    containers:
+    - image: mongo
+      name: mongodb
+      volumeMounts:
+      - name: mongodb-data
+        mountPath: /data/db
+      ports:
+      - containerPort: 27017
+        protocol: TCP
+    volumes:
+    - name: mongodb-data
+      persistentVolumeClaim:
+        claimName: mongodb-pvc
+#+end_src
+
+Lets see what we did
+#+begin_src shell :results raw 
+kubectl apply -f yaml/mongodb-pod-pvc.yaml
+#+end_src
+
+#+RESULTS:
+pod/mongodb created
+
+Yeah buddy, that is it, now we have a PV tied to a PVC that the pod can use when defining volumes.... SOOO Goood
+
+Got to 6.5.5 Understanding the benefits of using PersistentVolumes and claims
