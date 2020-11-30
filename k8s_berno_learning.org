@@ -2906,9 +2906,240 @@ kubectl logs fortune
 a container name must be specified for pod fortune, choose one of: [html-generator web-server
 
 not exactly correct, but it does the trick, again for more info run  "kubectl describe po fortune"
+Good right?
 
-Good?
+** gitrepo volumes
+K next we play with git based volumes, it is an extension of the emptyDir, it will create the emptyDir and then clone the specified repo into the directory
+
+Lets build one to see what it looks like
+
+#+begin_src yaml :tangle yaml/gitrepo-volume-pod.yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: gitrepo-volume-pod
+  spec:
+    containers:
+      - image: nginx:alpine
+        name: web-server
+        volumeMounts:
+        - name: html
+          mountPath: /usr/share/nginx/html
+          readOnly: true
+        ports:
+        - containerPort: 80
+          protocol: TCP
+    volumes:
+    - name: html
+      gitRepo:
+        repository: https://github.com/luksa/kubia-website-example.git
+        revision: master
+        directory: .
+#+end_src
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/gitrepo-volume-pod.yaml
+#+end_src
+
+#+RESULTS:
+pod/gitrepo-volume-pod created
+pod "gitrepo-volume-pod" deleted
+pod/gitrepo-volume-pod created
+
+#+begin_src shell :results raw
+kubectl get po 
+#+end_src
+
+#+RESULTS:
+NAME                 READY   STATUS    RESTARTS   AGE
+dnsutils             1/1     Running   0          11h
+fortune              2/2     Running   0          5h14m
+gitrepo-volume-pod   1/1     Running   0          38s
+kubia-dh8kt          1/1     Running   0          5d4h
+kubia-nj8kd          1/1     Running   0          5d5h
+kubia-zbk5r          1/1     Running   0          5d4h
+
+I am once again running the kubectl port-forward gitrepo-volume-pod 8080:80
+#+begin_src shell :results raw
+curl localhost:8080
+#+end_src
+
+#+RESULTS:
+<html>
+<body>
+Hello there.
+</body>
+</html>
+
+And that is the content of the html file residing in that repo, YAS!
+Note that the files will not update when you make a commit to the repo, you have to kill and restart the pod for the new commits to show up
+Note that gitRepo volume is not made to work with private github repos, rather you need to add a git sync sidecar container to clone and keep a private repo synced
+
+** hostpath volumes
+   This is persistant volumes, on a node
+VERY IMPORTANT this persists volumes per node, so if the pod moves to a new node the volume will not move with it
+in other words this is not the volume type you want for a database, hostpath volumes are not good for regular pods, it makes them rely on a specific node
+A good use of this would be the system pods, ie daemonsets where you will have one of each pod on the node
+Lets look at an example
+#+begin_src shell :results raww
+ kubectl get pods C-n kube-system
+#+end_src
+
+#+RESULTS:
+| NAME                                      | READY | STATUS    | RESTARTS |  AGE |
+| coredns-66bff467f8-96gv4                  | 1/1   | Running   |        2 | 102d |
+| etcd-minikube                             | 1/1   | Running   |        1 |  26d |
+| ingress-nginx-admission-create-fpcvv      | 0/1   | Completed |        0 | 102d |
+| ingress-nginx-admission-patch-6qfcz       | 0/1   | Completed |        0 | 102d |
+| ingress-nginx-controller-799dcd5d57-cmd68 | 1/1   | Running   |        1 |  26d |
+| kube-apiserver-minikube                   | 1/1   | Running   |        2 | 102d |
+| kube-controller-manager-minikube          | 1/1   | Running   |        2 | 102d |
+| kube-proxy-d892r                          | 1/1   | Running   |        2 | 102d |
+| kube-scheduler-minikube                   | 1/1   | Running   |        2 | 102d |
+| registry-65xp4                            | 1/1   | Running   |        2 | 102d |
+| registry-proxy-dqn2b                      | 1/1   | Running   |        2 | 102d |
+| storage-provisioner                       | 1/1   | Running   |        8 | 102d |
+
+#+begin_src shell :results raw
+kubectl describe po etcd-minikub -n kube-system 
+#+end_src
+
+#+RESULTS:
+Volumes:
+  etcd-certs:
+    Type:          HostPath (bare host directory volume)
+    Path:          /var/lib/minikube/certs/etcd
+    HostPathType:  DirectoryOrCreate
+  etcd-data:
+    Type:          HostPath (bare host directory volume)
+    Path:          /var/lib/minikube/etcd
+    HostPathType:  DirectoryOrCreate
+QoS Class:         BestEffort
+Node-Selectors:    <none>
+Tolerations:       :NoExecute
+Events:            <none>
 
 
+This means host path volumes is only used to read system data, ie minikube certs in this case
+For instance /var/log or other shared system volumes the pod needs, but that is specific per node
 
-mkay I got down to p166 "Specifying the medium to use for the emptydir"
+** Persistant storage
+   This is volumes of data that persists regardless which node the pod comes up on
+It would usually be comething like S3 o GCE
+Kubernetes will provision disk on your cloud provider for you, but you can also do it manually
+Here is an example creating the volume and then creating the pod
+#+begin_example
+$ gcloud container clusters list
+        NAME   ZONE            MASTER_VERSION  MASTER_IP       ...
+        kubia  europe-west1-b  1.2.5           104.155.84.137  ...
+$ gcloud compute disks create --size=1GiB --zone=europe-west1-b mongodb
+        NAME     ZONE            SIZE_GB  TYPE         STATUS
+        mongodb  europe-west1-b  1        pd-standard  READY
+#+end_example
+
+Then you can mount the above created volume with the following yaml
+#+begin_example yaml/mongodb-pod-gcepd.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mongodb
+spec:
+  volumes:
+  - name: mongodb-data
+    gcePersistentDisk:
+      pdName: mongodb
+      fsType: ext4
+  containers:
+  - image: mongo
+    name: mongodb
+    volumeMounts:
+    - name: mongodb-data
+      mountPath: /data/db
+    ports:
+    - containerPort: 27017
+      protocol: TCP
+#+end_example
+Things to note
+- The type of the volume is a GCE Persistent Disk.
+- The name of the persistent disk must match the actual PD you created earlier.
+- The filesystem type is EXT4 (a type of Linux filesystem).
+- Mountpath is The path where MongoDB stores its data
+- The name of the volume (also referenced when mounting the volume)
+
+k now lets try using a persistent volume on my machines /tmp to see if minikube will mount that
+
+#+begin_src yaml :tangle yaml/mongodb-pod-hostpath.yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: mongodb
+  spec:
+    volumes:
+    - name: mongodb-data
+      hostPath:
+        path: /tmp/mongodb
+    containers:
+    - image: mongo
+      name: mongodb
+      volumeMounts:
+      - name: mongodb-data
+        mountPath: /data/db
+      ports:
+      - containerPort: 27017
+        protocol: TCP
+#+end_src
+
+First I want to confirm the tmp dir does not exist
+#+begin_src shell :results raw
+ls -al /tmp/mongodb 
+#+end_src
+
+#+RESULTS:
+ /tmp/mongodb: No such file or directory
+
+k lets go apply the pod and see what happens
+Ugg bugger that is a hostpath so specific to the node, so still only inside minikube, I need to see how I persist that out to outside of minikube
+#+begin_src shell :results raw
+kubectl apply -f yaml/mongodb-pod-hostpath.yaml 
+#+end_src
+
+#+RESULTS:
+pod/mongodb created
+
+#+begin_src shell :results raw
+kubectl get po
+#+end_src
+
+#+RESULTS:
+NAME                 READY   STATUS              RESTARTS   AGE
+dnsutils             1/1     Running             0          13h
+fortune              2/2     Running             0          7h7m
+gitrepo-volume-pod   1/1     Running             0          108m
+kubia-dh8kt          1/1     Running             0          5d6h
+kubia-nj8kd          1/1     Running             0          5d7h
+kubia-zbk5r          1/1     Running             0          5d6h
+mongodb              0/1     ContainerCreating   0          3s
+
+#+begin_src shell :results raw
+ls -al /tmp/mongodb
+#+end_src
+
+#+RESULTS:
+ /tmp/mongodb: No such file or directory
+ 
+
+Yip confirmed it is /tmp inside the minikube vm....
+#+begin_example
+$ minikube ssh
+
+$ ls -al /tmp/mongodb
+total 296
+drwxr-xr-x 4  999 root   400 Nov 30 11:12 .
+drwxrwxrwt 7 root root   180 Nov 30 11:13 ..
+-rw------- 1  999  999    47 Nov 30 10:57 WiredTiger
+-rw------- 1  999  999    21 Nov 30 10:57 WiredTiger.lock
+-rw------- 1  999  999  1247 Nov 30 11:12 WiredTiger.turtle
+#+end_example
+
+
+mkay it is after midnight I need to get some rest. I am on page 173 "WRITING DATA TO THE PERSISTENT STORAGE BY ADDING DOCUMENTS TO YOUR MONGODB DATABASE"
