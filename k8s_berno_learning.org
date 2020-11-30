@@ -2786,3 +2786,129 @@ SERVICE TROUBLESHOOTING TIPS
 6) Make sure you are connecting on the exposed port and not the targetPort
 7) Try connecting directly to the pod IP to make sure the pod is accepting connections
 8) If you can not get to the app through the pod's IP make sure the app is not only binding to localhost
+
+
+*  Volumes: attaching disk storage to containers
+Volumes allows mutliple containers in a single pod to share storage
+Many multiple types, we will start with emptydir
+
+
+I built and pushed a container that will use the linux fortune command to write content to /var/htdocs/index.html
+Here is the steps I took to build the container, first create folder and add this script to it
+#+begin_example
+#!/bin/bash
+trap "exit" SIGINT
+mkdir /var/htdocs
+while :
+do
+  echo $(date) Writing fortune to /var/htdocs/index.html
+  /usr/games/fortune > /var/htdocs/index.html
+  sleep 10
+done
+#+end_example
+
+Next I go add a docker file
+#+begin_example
+FROM ubuntu:latest
+USER root
+ADD fortuneloop.sh /bin/fortuneloop.sh
+RUN apt-get update ; apt-get -y install fortune; chmod 755 /bin/fortuneloop.sh
+ENTRYPOINT /bin/fortuneloop.sh
+#+end_example
+One thing to note when I first ran this it failed with permission denied for fortuneloop, so I add the USER root and chmod, not sure if it is correct, but it made sense
+
+Finally I built and pushed with
+#+begin_example
+docker build -t bernokl/fortune .
+docker push bernokl/fortune
+#+end_example
+
+Mkay lets take our new image and create the pod with the two shared mounts 
+#+begin_src yaml :tangle yaml/fortune-pod.yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: fortune
+  spec:
+    containers:
+      - image: bernokl/fortune
+        name: html-generator
+        volumeMounts:
+        - name: html
+          mountPath: /var/htdocs
+      - image: nginx:alpine
+        name: web-server
+        volumeMounts:
+        - name: html
+          mountPath: /usr/share/nginx/html
+          readOnly: true
+        ports:
+        - containerPort: 80
+          protocol: TCP
+    volumes:
+    - name: html
+      emptyDir: {}
+#+end_src
+
+
+The same html volume gets mounted on two different paths in each container
+html-generator that way html-generator and web-server can share the same index.html
+Lets apply it and see if it will run
+#+begin_src shell :restults raw
+kubectl apply -f yaml/fortune-pod.yaml 
+#+end_src
+
+#+RESULTS:
+: pod/fortune created
+
+#+begin_src shell :results raw
+kubectl get po 
+#+end_src
+
+#+RESULTS:
+NAME          READY   STATUS    RESTARTS   AGE
+dnsutils      1/1     Running   0          6h
+fortune       2/2     Running   0          52s
+kubia-dh8kt   1/1     Running   0          4d23h
+kubia-nj8kd   1/1     Running   0          4d23h
+kubia-zbk5r   1/1     Running   0          4d23h
+NAME          READY   STATUS              RESTARTS   AGE
+dnsutils      1/1     Running             0          5h59m
+fortune       0/2     ContainerCreating   0          6s
+kubia-dh8kt   1/1     Running             0          4d23h
+kubia-nj8kd   1/1     Running             0          4d23h
+kubia-zbk5r   1/1     Running             0          4d23h
+
+OOO pretty, ok lets see if we can just forward the port and take a peek
+I can not run this in here, it will hang out, gonna go try the following in an external shell just to forward the port
+#+begin_example
+kubectl port-forward fortune 8080:80 
+#+end_example
+
+and then lets try to curl it
+#+begin_src shell :restults raw 
+curl http://localhost:8080
+#+end_src
+
+#+RESULTS:
+: Many changes of mind and mood; do not hesitate too long.
+
+OO weirtd quote, still IT WORKED!!
+
+YAY
+I noticed something random fortune has the 2 containers, but they are not listed in the output above, I googled a bit to see how I can list them and there is some jasonpath foo that will do it
+I did realize a simple cheat is to look for logs, the output will provide you with the names, the adult way is to describe the pod, that also lists containers.....
+#+begin_src shell :results raw
+kubectl logs fortune 
+#+end_src
+
+#+RESULTS:
+a container name must be specified for pod fortune, choose one of: [html-generator web-server
+
+not exactly correct, but it does the trick, again for more info run  "kubectl describe po fortune"
+
+Good?
+
+
+
+mkay I got down to p166 "Specifying the medium to use for the emptydir"
