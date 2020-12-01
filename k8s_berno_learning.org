@@ -3489,3 +3489,167 @@ Specifying an empty string as the storage class name ensures the PVC binds to a 
 spec:
   storageClassName: ""
 #+end_example
+
+* ConfigMaps and secrets
+You can configure your apps by
+- Passing command-line arguments to containers
+- Setting custom environment variables for each container
+- Mounting configuration files into containers through a special type of volume
+
+In a Dockerfile, two instructions define the commands to run and the arguments:
+- ENTRYPOINT defines the executable invoked when the container is started.
+- CMD specifies the arguments that get passed to the ENTRYPOINT.
+
+Both of these support different forms:
+- shell form—For example, ENTRYPOINT node app.js.
+- exec form—For example, ENTRYPOINT ["node", "app.js"].
+
+Shell means it will be ran inside a shell command, so the ps of the shell format would
+first have a shell process that spawns the node process
+#+begin_example
+$ docker exec -it e4bad ps x
+  PID TTY      STAT   TIME COMMAND
+    1 ?        Ss     0:00 /bin/sh -c node app.js
+    7 ?        Sl     0:00 node app.js
+#+end_example
+
+The exec form will directly run node (not inside a shell)
+#+begin_example
+$ docker exec 4675d ps x
+    PID TTY  STAT   TIME COMMAND
+    1    ?   Ssl    0:00 node app.js
+#+end_example
+
+
+Ok lets start with a simple configurable image so we can play, I am going to update the forune script to allow the interval to be configuratble
+
+#+begin_example
+#!/bin/bash
+trap "exit" SIGINT
+INTERVAL=$1
+echo Configured to generate new fortune every $INTERVAL seconds
+mkdir /var/htdocs
+while :
+do
+  echo $(date) Writing fortune to /var/htdocs/index.html
+  /usr/games/fortune > /var/htdocs/index.html
+  sleep $INTERVAL
+done
+#+end_example
+
+Now lets change the Dockerfile to use the exec method so we can pass it some the vars
+#+begin_example
+FROM ubuntu:latest
+RUN apt-get update ; apt-get -y install fortune
+ADD fortuneloop.sh /bin/fortuneloop.sh
+ENTRYPOINT ["/bin/fortuneloop.sh"]
+CMD ["10"]
+#+end_example
+
+k, now lets build and push
+#+begin_example
+$ docker build -t docker.io/bernokl/fortune:args .
+$ docker push docker.io/bernokl/fortune:args
+#+end_example
+
+I can now see my new var being used with
+#+begin_example
+$docker run -it docker.io/bernokl/fortune:args
+  Configured to generate new fortune every 10 seconds
+  Tue Dec 1 22:21:21 UTC 2020 Writing fortune to /var/htdocs/index.html
+#+end_example
+
+Lets pass in a new value for our arg
+#+begin_example
+$docker run -it docker.io/bernokl/fortune:args 16
+  Configured to generate new fortune every 16 seconds
+  Tue Dec 1 22:21:55 UTC 2020 Writing fortune to /var/htdocs/index.html
+#+end_example
+
+HOW cool is that?
+
+In a pod we can overide the ENTRYPOINT and CMD with command and args, it will look something like this
+#+begin_example
+kind: Pod
+  spec:
+  containers:
+  - image: some/image
+    command: ["/bin/command"]
+    args: ["arg1", "arg2", "arg3"]
+#+end_example
+
+Lets combine all this amazing knowledge to build a new fortune pod that will use the arguments
+
+#+begin_src yaml :tangle yaml/fortune-pod-args.yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: fortune2s
+  spec:
+    containers:
+    - image: bernokl/fortune:args
+      imagePullPolicy: Always
+      args: ["2"]
+      name: html-generator
+      volumeMounts:
+      - name: html
+        mountPath: /var/htdocs
+    - image: nginx:alpine
+      name: web-server
+      volumeMounts:
+      - name: html
+        mountPath: /usr/share/nginx/html
+        readOnly: true
+      ports:
+      - containerPort: 80
+        protocol: TCP
+    volumes:
+    - name: html
+      emptyDir: {}
+#+end_src
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/fortune-pod-args.yaml 
+#+end_src
+
+#+RESULTS:
+pod/fortune2s created
+pod "fortune2s" deleted
+pod/fortune2s created
+pod "fortune2s" deleted
+pod/fortune2s created
+
+#+begin_src shell :results raw
+kubectl get po
+#+end_src
+
+#+RESULTS:
+NAME                 READY   STATUS    RESTARTS   AGE
+dnsutils             1/1     Running   0          2d
+fortune              2/2     Running   0          42h
+fortune2s            2/2     Running   0          19s
+gitrepo-volume-pod   1/1     Running   0          37h
+kubia-dh8kt          1/1     Running   0          6d18h
+kubia-nj8kd          1/1     Running   0          6d18h
+kubia-zbk5r          1/1     Running   0          6d18h
+mongodb              1/1     Running   0          23h
+
+#+begin_src shell :results raw
+kubectl logs fortune2s -c html-generator | tail 
+#+end_src
+
+#+RESULTS:
+Configured to generate new fortune every 2 seconds
+Tue Dec 1 23:25:39 UTC 2020 Writing fortune to /var/htdocs/index.html
+Configured to generate new fortune every 2 seconds
+Tue Dec 1 23:25:41 UTC 2020 Writing fortune to /var/htdocs/index.html
+Configured to generate new fortune every 2 seconds
+Tue Dec 1 23:25:43 UTC 2020 Writing fortune to /var/htdocs/index.html
+Configured to generate new fortune every 2 seconds
+Tue Dec 1 23:25:45 UTC 2020 Writing fortune to /var/htdocs/index.html
+Configured to generate new fortune every 2 seconds
+Tue Dec 1 23:25:47 UTC 2020 Writing fortune to /var/htdocs/index.html
+
+Can I have a whoop whoop
+
+got to 7.3 Setting environment variables for a container
