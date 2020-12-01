@@ -3170,6 +3170,7 @@ Lets go set up a PersistantVolume
 #+end_src
 
 This is an example of what that volume would look like if we were doing it with cloud storage
+Basically the last couple of lines change to point to GCE instead of hostpath
 #+begin_example
 apiVersion: v1
 kind: PersistentVolume
@@ -3301,4 +3302,93 @@ pod/mongodb created
 
 Yeah buddy, that is it, now we have a PV tied to a PVC that the pod can use when defining volumes.... SOOO Goood
 
-Got to 6.5.5 Understanding the benefits of using PersistentVolumes and claims
+Now as previously mentioned that kubernetes can automatically provision the PV it is built in for a few cloud providers, 
+but for on prem or other custom storage a provisioner needs to be deployed in the cluster to allow it to auto provision the storage.
+To be able to allow this kind of provisioning the cluster-admin needs to provision storageClass that will define the types of storage available.
+
+This is an example GCE fast storageClass definition
+#+begin_example
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast
+provisioner: kubernetes.io/gce-pd
+parameters:
+  type: pd-ssd
+  zone: europe-west1-b
+#+end_example
+Things to note
+- We define the provisioner as the volume plugin that will be used kubernetes.io/gce-pd in our example
+- The parameters is what we pass to the provisioner to define the type of storage
+
+Lets see what the same thing looks like for minikube
+#+begin_src yaml :tangle yaml/storageclass-fast-hostpath.yaml
+  apiVersion: storage.k8s.io/v1
+  kind: StorageClass
+  metadata:
+    name: fast
+  provisioner: k8s.io/minikube-hostpath
+  parameters:
+    type: pd-ssd
+#+end_src
+
+#+begin_src shell :results raw 
+kubectl apply -f yaml/storageclass-fast-hostpath.yaml
+#+end_src
+
+#+RESULTS:
+storageclass.storage.k8s.io/fast created
+
+#+begin_src shell :results raw 
+kubectl get storageclass
+#+end_src
+
+#+RESULTS:
+NAME                 PROVISIONER                RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+fast                 k8s.io/minikube-hostpath   Delete          Immediate           false                  28s
+standard (default)   k8s.io/minikube-hostpath   Delete          Immediate           false                  103d
+
+OK lets go see if can create a pvc with dynamic provisioning
+
+#+begin_src yaml :tangle yaml/mongodb-pvc-dp.yaml
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    name: mogodb-pvc-dp
+  spec:
+    storageClassName: fast
+    resources:
+      requests:
+        storage: 100Mi
+    accessModes:
+      - ReadWriteOnce
+#+end_src
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/mongodb-pvc-dp.yaml 
+#+end_src
+
+#+RESULTS:
+persistentvolumeclaim/mogodb-pvc-dp created
+persistentvolumeclaim "mogodb-pvc" deleted
+persistentvolumeclaim/mogodb-pvc created
+
+#+begin_src shell :results raw
+kubectl get pvc
+#+end_src
+
+#+RESULTS:
+NAME            STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+mogodb-pvc-dp   Bound    pvc-020cdd8b-af12-4f4d-95f5-66a4c5db491f   100Mi      RWO            fast           17s
+mongodb-pvc     Bound    mongodb-pv                                 1Gi        RWO,ROX                       4h6m
+
+#+begin_src shell :results raw
+kubectl get pv
+#+end_src
+
+#+RESULTS:
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                   STORAGECLASS   REASON   AGE
+mongodb-pv                                 1Gi        RWO,ROX        Retain           Bound    default/mongodb-pvc                             4h31m
+pvc-020cdd8b-af12-4f4d-95f5-66a4c5db491f   100Mi      RWO            Delete           Bound    default/mogodb-pvc-dp   fast                    68s
+
+6.6.3 Dynamic provisioning without specifying a storage class
