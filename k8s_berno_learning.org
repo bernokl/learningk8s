@@ -3391,4 +3391,101 @@ NAME                                       CAPACITY   ACCESS MODES   RECLAIM POL
 mongodb-pv                                 1Gi        RWO,ROX        Retain           Bound    default/mongodb-pvc                             4h31m
 pvc-020cdd8b-af12-4f4d-95f5-66a4c5db491f   100Mi      RWO            Delete           Bound    default/mogodb-pvc-dp   fast                    68s
 
-6.6.3 Dynamic provisioning without specifying a storage class
+
+
+It is interesting that there is a default storageclass even before I created one
+#+begin_src shell :results raw
+kubectl get sc 
+#+end_src
+
+#+RESULTS:
+NAME                 PROVISIONER                RECLAIMPOLICY   VOLUMEBINDINGMODE   ALLOWVOLUMEEXPANSION   AGE
+fast                 k8s.io/minikube-hostpath   Delete          Immediate           false                  15h
+standard (default)   k8s.io/minikube-hostpath   Delete          Immediate           false                  103d
+
+Lets get a bit more detail on that standard sc
+#+begin_src shell :results raw 
+kubectl get sc standard -o yaml 
+#+end_src
+
+#+RESULTS:
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"storage.k8s.io/v1","kind":"StorageClass","metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"},"labels":{"addonmanager.kubernetes.io/mode":"EnsureExists"},"name":"standard"},"provisioner":"k8s.io/minikube-hostpath"}
+    storageclass.kubernetes.io/is-default-class: "true"
+  creationTimestamp: "2020-08-19T22:14:48Z"
+  labels:
+    addonmanager.kubernetes.io/mode: EnsureExists
+  managedFields:
+  - apiVersion: storage.k8s.io/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:metadata:
+        f:annotations:
+          .: {}
+          f:kubectl.kubernetes.io/last-applied-configuration: {}
+          f:storageclass.kubernetes.io/is-default-class: {}
+        f:labels:
+          .: {}
+          f:addonmanager.kubernetes.io/mode: {}
+      f:provisioner: {}
+      f:reclaimPolicy: {}
+      f:volumeBindingMode: {}
+    manager: kubectl
+    operation: Update
+    time: "2020-08-19T22:14:48Z"
+  name: standard
+  resourceVersion: "250"
+  selfLink: /apis/storage.k8s.io/v1/storageclasses/standard
+  uid: 822d13cc-5e04-4f61-9b56-ecb487aa62a3
+provisioner: k8s.io/minikube-hostpath
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+
+This means that I could have provisoned a PVC without defining a PV, lets test lets create pvc without a storageClassName specified
+#+begin_src yaml :tangle yaml/mongodb-pvc-dp-nostorageclass.yaml
+  apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata: 
+    name: mongodb-pvc2
+  spec:
+    resources:
+      requests:
+        storage: 100Mi
+    accessModes:
+      - ReadWriteOnce
+#+end_src
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/mongodb-pvc-dp-nostorageclass.yaml
+#+end_src
+
+#+RESULTS:
+persistentvolumeclaim/mongodb-pvc2 created
+
+#+begin_src shell :results raw
+kubectl get pvc mongodb-pvc2
+#+end_src
+
+#+RESULTS:
+NAME           STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+mongodb-pvc2   Bound    pvc-0ff2103f-8740-48c8-baac-a6226fd6ca9c   100Mi      RWO            standard       26s
+
+#+begin_src shell :results raw
+kubectl get pv pvc-0ff2103f-8740-48c8-baac-a6226fd6ca9c
+#+end_src
+
+#+RESULTS:
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                  STORAGECLASS   REASON   AGE
+pvc-0ff2103f-8740-48c8-baac-a6226fd6ca9c   100Mi      RWO            Delete           Bound    default/mongodb-pvc2   standard                68s
+
+This is important to note,
+Specifying an empty string as the storage class name ensures the PVC binds to a pre-provisioned PV instead of dynamically provisioning a new one.
+#+begin_example
+ kind: PersistentVolumeClaim
+spec:
+  storageClassName: ""
+#+end_example
