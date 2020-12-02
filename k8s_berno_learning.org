@@ -3798,4 +3798,339 @@ Wed Dec 2 02:37:57 UTC 2020 Writing fortune to /var/htdocs/index.html
 Configured to generate new fortune every 30 seconds
 Wed Dec 2 02:38:27 UTC 2020 Writing fortune to /var/htdocs/index.html
 
-YAY, this was a lot more of a pita than it should have been had a bit of issues pulling new container etc, rally glad it is now working
+YAY, this was a lot more of a pita than it should have been, had a bit of trouble  pulling new container etc, really glad it is now working
+
+Short recap, replace args with env, something like this
+#+begin_example
+kind: Pod
+spec:
+ containers:
+ - image: luksa/fortune:env
+   env:
+   - name: INTERVAL
+value: "30"
+   name: html-generator
+#+end_example
+
+Note you can also use the var to populate other vars
+#+begin_example
+env:
+- name: FIRST_VAR
+  value: "foo"
+- name: SECOND_VAR
+  value: "$(FIRST_VAR)bar"
+#+end_example
+In the above the value of SECOND_VAR is foobar
+In the same way command and args can reference vars
+
+** ConfigMaps
+Used to decouple configuration variables from the pod definition
+It is just a map containing key/value pairs, think Ansible vault
+
+Config map can either be env vars or a configMap volume, you can use it directly like the literal below.
+The following sets the configMap fortune-config to have the values sleep-interval=25
+#+begin_src shell :results raw  
+kubectl create configmap fortune-config --from-literal=sleep-interval=25
+#+end_src
+
+#+RESULTS:
+configmap/fortune-config created
+
+Lets inspect that bad boy
+#+begin_src shell :results raw  
+kubectl get configmap fortune-config -o yaml
+#+end_src
+
+#+RESULTS:
+apiVersion: v1
+data:
+  sleep-interval: "25"
+kind: ConfigMap
+metadata:
+  creationTimestamp: "2020-12-02T08:34:44Z"
+  managedFields:
+  - apiVersion: v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:data:
+        .: {}
+        f:sleep-interval: {}
+    manager: kubectl
+    operation: Update
+    time: "2020-12-02T08:34:44Z"
+  name: fortune-config
+  namespace: default
+  resourceVersion: "1248943"
+  selfLink: /api/v1/namespaces/default/configmaps/fortune-config
+  uid: 57fd4539-ebae-4b4d-9ffd-ee766b83c14b
+
+One more thing if you want to add mutliple values to the map use --from-literal as many times as you need, ie.
+#+begin_example
+kubectl create configmap myconfigmap --from-literal=foo=bar --from-literal=bar=baz --from-literal=one=two
+#+end_example
+
+Next we willlook at creating the map from the contents of a file 
+In this case it will store the content of the file under the key config-file.conf in the ConfigMap
+#+begin_example
+kubectl create configmap my-config --from-file=config-file.conf
+#+end_example
+
+You can assign a custom key
+This will store the content of the file under the key customkey
+Same as with literals you can add multiple files using the --from-file argument mutliple times.
+#+begin_example
+kubectl create configmap my-config --from-file=customkey=config-file.conf
+#+end_example
+
+You can also import all files in a directory
+This will create an individual map entry for each file in the directory
+#+begin_example
+kubectl create configmap my-config --from-file=customkey=/path/to/dir
+#+end_example
+
+You can combine all the above in a single command just adding --from-file and --from-literal to the command
+
+Now how do we pass a ConfigMap entry to a container?
+This will expose it as an env value
+#+begin_example
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: fortune-env-from-configmap
+  spec:
+    containers:
+    - image: bernokl/fortune:env
+      env:
+      - name: INTERVAL
+        valueFrom:
+          configMapKeyRef:
+            name: fortune-config
+            key: sleep-interval
+.......
+#+end_example
+Things to note:
+- You are setting an environmental varaible named INTERVAL
+- Instead of setting it to a vixed value, you are initializing it from a ConfigMap key
+- The name under configMapKeyRef is the name of the ConfigMap
+- You are setting the variable to whatever var is stored with the sleep-interval key
+- This means when the html-generator is created it will read the INTERVAL var and find the value paired with the sleep-interval key.
+
+So fortuneloop.sh process in looking for the Environmental variable INTERVAL and that variable is set to the value of sleep-interval
+Not confusing just abstracted, I have used key value stores in the past and understand it is very handy
+It looks over complicated for what it is, but know abstraction is valued in k8s curious to see more use cases
+
+The above is nice, but in most cases I would imagine you are going to have multiple keys in your ConfigMap
+
+NOTE IMPOTANT!! 
+ConfigMap keys must must consist of alphanumeric characters, _, -, or .
+
+The same way we made it available as a env var above to be consumed we can also make it an argument in the pod
+#+begin_example
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: fortune-env-from-configmap
+  spec:
+    containers:
+    - image: bernokl/fortune:env
+      env:
+      - name: INTERVAL
+        valueFrom:
+          configMapKeyRef:
+            name: fortune-config
+            key: sleep-interval
+      args: ["$(INTERVAL)"]      
+.......
+#+end_example
+
+Now the fortuneloop.sh process will have the INTERVAL value provided as a argument when it gets started, syntax is $(ENV_VAR_NAME)
+
+Next we are going to create a ConfigMap volume that will hold all our config files
+First lets delete our fortune-config ConfigMap
+#+begin_src shell :restults raw 
+kubectl delete configmap fortune-config
+#+end_src
+
+#+RESULTS:
+: fortune-config
+
+Ok now lets create a file we will be passing into our configmap volume
+I am going to update the nginx config we are running in our web-server container to enable compression
+#+begin_src yaml :tangle fortune-env/config/my-nginx-config.conf
+server {
+  listen       80;
+  server_name  www.kubia-example.com;
+
+  gzip on;
+  gzip_types text/plain application/xml;
+
+  location / {
+    root   /usr/share/nginx/html;
+    index  index.html index.htm;
+  }
+}
+#+end_src
+
+Lets also create a file that contains the value of sleep-interval
+#+begin_src yaml :tangle fortune-env/config/sleep-interval
+25
+#+end_src
+
+K, lets go apply both
+#+begin_src shell :results raw 
+kubectl create configmap fortune-config --from-file=fortune-env/config
+#+end_src
+
+#+RESULTS:
+configmap/fortune-config created
+
+Lets see what we did
+#+begin_src shell :results raw
+kubectl get configmap fortune-config -o yaml 
+#+end_src
+
+#+RESULTS:
+apiVersion: v1
+data:
+  my-nginx-config.conf: |
+    server {
+      listen       80;
+      server_name  www.kubia-example.com;
+
+      gzip on;
+      gzip_types text/plain application/xml;
+
+      location / {
+        root   /usr/share/nginx/html;
+        index  index.html index.htm;
+      }
+    }
+  sleep-interval: |
+    25
+kind: ConfigMap
+metadata:
+  creationTimestamp: "2020-12-02T10:27:54Z"
+  managedFields:
+  - apiVersion: v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:data:
+        .: {}
+        f:my-nginx-config.conf: {}
+        f:sleep-interval: {}
+    manager: kubectl
+    operation: Update
+    time: "2020-12-02T10:27:54Z"
+  name: fortune-config
+  namespace: default
+  resourceVersion: "1254633"
+  selfLink: /api/v1/namespaces/default/configmaps/fortune-config
+  uid: eef449fa-5772-43ac-af7b-56b2af16582f
+
+
+ok now we need to mount that ConfigMap into a folder where it will be useful
+It is handy that nginx automatically includes all .conf files in the /etc/nginx/conf.d/ subdirectory as well
+This means we will add our config file in there
+#+begin_src yaml :tangle yaml/fortune-pod-configmap-volume.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fortune-configmap-volume
+spec:
+  containers:
+  - image: bernokl/fortune:env
+    env:
+    - name: INTERVAL
+      valueFrom:
+        configMapKeyRef:
+          name: fortune-config
+          key: sleep-interval
+    name: html-generator
+    volumeMounts:
+    - name: html
+      mountPath: /var/htdocs
+  - image: nginx:alpine
+    name: web-server
+    volumeMounts:
+    - name: html
+      mountPath: /usr/share/nginx/html
+      readOnly: true
+    - name: config
+      mountPath: /etc/nginx/conf.d
+      readOnly: true
+    - name: config
+      mountPath: /tmp/whole-fortune-config-volume
+      readOnly: true
+    ports:
+      - containerPort: 80
+        name: http
+        protocol: TCP
+  volumes:
+  - name: html
+    emptyDir: {}
+  - name: config
+    configMap:
+      name: fortune-config
+#+end_src
+Things to note:
+- We are mounting the entire volume in /etc/nginx/conf.d 
+- Notice the volumes: definition at the bottom is refering to the fortune-config ConfigMap
+
+OK, lets apply it and see what we get
+#+begin_src shell :results raw
+kubectl apply -f yaml/fortune-pod-configmap-volume.yaml 
+#+end_src
+
+#+RESULTS:
+pod/fortune-configmap-volume created
+
+Lets see what we got
+#+begin_src shell :results raw
+kubectl get po 
+#+end_src
+
+#+RESULTS:
+NAME                       READY   STATUS    RESTARTS   AGE
+dnsutils                   1/1     Running   0          2d13h
+fortune                    2/2     Running   0          2d7h
+fortune-configmap-volume   2/2     Running   0          25s
+fortune-env                2/2     Running   6          8h
+fortune2s                  2/2     Running   0          8h
+gitrepo-volume-pod         1/1     Running   0          2d1h
+kubia-dh8kt                1/1     Running   0          7d6h
+kubia-nj8kd                1/1     Running   0          7d7h
+kubia-zbk5r                1/1     Running   0          7d6h
+mongodb                    1/1     Running   0          36h
+
+Nice, k let me go see, I am going to do the port forwarding outside and then run a curl to see what we see
+#+begin_example
+kubectl port-forward fortune-configmap-volume 8080:80
+#+end_example
+
+#+begin_src shell :results raw 
+curl -H "Accept-Encoding: gzip" -I localhost:8080
+#+end_src
+
+#+RESULTS:
+HTTP/1.1 200 OK
+Server: nginx/1.19.5
+Date: Wed, 02 Dec 2020 11:19:07 GMT
+Content-Type: text/html
+Last-Modified: Wed, 02 Dec 2020 11:19:05 GMT
+Connection: keep-alive
+ETag: W/"5fc77829-5f"
+Content-Encoding: gzip
+
+
+lets go confirm that my configmap successfully mounted
+#+begin_src shell :results raw
+kubectl exec fortune-configmap-volume -c web-server ls /etc/nginx/conf.d 
+#+end_src
+
+#+RESULTS:
+my-nginx-config.conf
+sleep-interval
+
+SO GOOD!!! both entries from the ConfigMap is there, not ideal in all situations still amazing to sees
+
+Got down to the bottom of page 209 "EXPOSING CERTAIN CONFIGMAP ENTRIES IN THE VOLUME"
