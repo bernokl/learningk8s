@@ -3652,4 +3652,150 @@ Tue Dec 1 23:25:47 UTC 2020 Writing fortune to /var/htdocs/index.html
 
 Can I have a whoop whoop
 
-got to 7.3 Setting environment variables for a container
+** Setting environment variables for a container.
+To allow the fortune script we wrote to use kubernetes env vars we have to take out the initialization of the var
+This appears to be because vars gets initialized differently depending on the lang
+
+Aite lets actually create the files in the doc, no reason to keep doing it outside
+#+begin_src bash :tangle fortune-env/fortuneloop.sh
+#!/bin/bash
+trap "exit" SIGINT
+## comment out the next line to show this is the one removed 
+## INTERVAL=$1
+mkdir /var/htdocs
+while :
+do
+  echo Configured to generate new fortune every $INTERVAL seconds
+  echo $(date) Writing fortune to /var/htdocs/index.html
+  /usr/games/fortune > /var/htdocs/index.html
+  sleep $INTERVAL
+done
+#+end_src
+
+Taking CMD out? lets try
+#+begin_src bash :tangle fortune-env/Dockerfile
+FROM ubuntu:latest
+USER root
+ADD fortuneloop.sh /bin/fortuneloop.sh
+RUN apt-get update ; apt-get -y install fortune; chmod 755 /bin/fortuneloop.sh
+ENTRYPOINT ["/bin/fortuneloop.sh"]
+CMD ["10"]
+#+end_src
+
+#+RESULTS:
+
+k, now lets build and push
+#+begin_src shell :results raw 
+cd fortune-env
+docker build -t docker.io/bernokl/fortune:env .
+docker push docker.io/bernokl/fortune:env
+#+end_src
+
+#+RESULTS:
+Sending build context to Docker daemon  3.072kB
+Step 1/6 : FROM ubuntu:latest
+ ---> f643c72bc252
+Step 2/6 : USER root
+ ---> Using cache
+ ---> 857cc72340ec
+Step 3/6 : ADD fortuneloop.sh /bin/fortuneloop.sh
+ ---> 6612f0435e0b
+Step 4/6 : RUN apt-get update ; apt-get -y install fortune; chmod 755 /bin/fortuneloop.sh
+Removing intermediate container dd47a5062cd2
+ ---> fff3ac1cbb37
+Step 5/6 : ENTRYPOINT ["/bin/fortuneloop.sh"]
+ ---> Running in 83fa74f885fa
+Removing intermediate container 83fa74f885fa
+ ---> 7480c3d3626e
+Step 6/6 : CMD ["10"]
+ ---> Running in c57f0e1605b8
+Removing intermediate container c57f0e1605b8
+ ---> 1cb42d2df3a1
+Successfully built 1cb42d2df3a1
+Successfully tagged bernokl/fortune:env
+The push refers to repository [docker.io/bernokl/fortune]
+693d3fdd3ec2: Preparing
+8894c524c5e3: Preparing
+f6253634dc78: Preparing
+9069f84dbbe9: Preparing
+bacd3af13903: Preparing
+bacd3af13903: Layer already exists
+f6253634dc78: Layer already exists
+9069f84dbbe9: Layer already exists
+8894c524c5e3: Pushed
+693d3fdd3ec2: Pushed
+env: digest: sha256:5d5d3dfd9abd4873a63efb4b5f690a1835cf754fca9dfa3f59b01de2aee07f0a size: 1362
+
+#+begin_src yaml :tangle yaml/fortune-pod-env.yaml
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: fortune2s
+  spec:
+    containers:
+    - image: bernokl/fortune:env
+      imagePullPolicy: Always
+      env:
+      - name: INTERVAL
+        value: "30"
+      name: html-generator
+      volumeMounts:
+      - name: html
+        mountPath: /var/htdocs
+    - image: nginx:alpine
+      name: web-server
+      volumeMounts:
+      - name: html
+        mountPath: /usr/share/nginx/html
+        readOnly: true
+      ports:
+      - containerPort: 80
+        protocol: TCP
+    volumes:
+    - name: html
+      emptyDir: {}
+#+end_src
+
+#+begin_src shell :results raw
+kubectl apply -f yaml/fortune-pod-env.yaml 
+#+end_src
+
+#+RESULTS:
+pod/fortune2s created
+pod "fortune2s" deleted
+pod/fortune-env created
+pod "fortune-env" deleted
+
+#+begin_src shell :restults raw 
+kubectl get po
+#+end_src
+
+#+RESULTS:
+| NAME               | READY | STATUS  | RESTARTS | AGE   |
+| dnsutils           | 1/1   | Running |        0 | 2d4h  |
+| fortune            | 2/2   | Running |        0 | 46h   |
+| fortune-env        | 2/2   | Running |        6 | 9m22s |
+| fortune2s          | 2/2   | Running |        0 | 15s   |
+| gitrepo-volume-pod | 1/1   | Running |        0 | 41h   |
+| kubia-dh8kt        | 1/1   | Running |        0 | 6d22h |
+| kubia-nj8kd        | 1/1   | Running |        0 | 6d22h |
+| kubia-zbk5r        | 1/1   | Running |        0 | 6d22h |
+| mongodb            | 1/1   | Running |        0 | 27h   |
+
+#+begin_src shell :results raw
+kubectl logs fortune-env -c html-generator | tail 
+#+end_src
+
+#+RESULTS:
+Configured to generate new fortune every 30 seconds
+Wed Dec 2 02:36:27 UTC 2020 Writing fortune to /var/htdocs/index.html
+Configured to generate new fortune every 30 seconds
+Wed Dec 2 02:36:57 UTC 2020 Writing fortune to /var/htdocs/index.html
+Configured to generate new fortune every 30 seconds
+Wed Dec 2 02:37:27 UTC 2020 Writing fortune to /var/htdocs/index.html
+Configured to generate new fortune every 30 seconds
+Wed Dec 2 02:37:57 UTC 2020 Writing fortune to /var/htdocs/index.html
+Configured to generate new fortune every 30 seconds
+Wed Dec 2 02:38:27 UTC 2020 Writing fortune to /var/htdocs/index.html
+
+YAY, this was a lot more of a pita than it should have been had a bit of issues pulling new container etc, rally glad it is now working
