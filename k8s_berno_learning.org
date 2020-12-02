@@ -4122,7 +4122,9 @@ ETag: W/"5fc77829-5f"
 Content-Encoding: gzip
 
 
-lets go confirm that my configmap successfully mounted
+Good we can see it is uing gzip so our new config is in use
+
+Lets go confirm that my configmap successfully mounted
 #+begin_src shell :results raw
 kubectl exec fortune-configmap-volume -c web-server ls /etc/nginx/conf.d 
 #+end_src
@@ -4133,4 +4135,318 @@ sleep-interval
 
 SO GOOD!!! both entries from the ConfigMap is there, not ideal in all situations still amazing to sees
 
-Got down to the bottom of page 209 "EXPOSING CERTAIN CONFIGMAP ENTRIES IN THE VOLUME"
+That is amazing, but would not really want to add a random ConfigMap like slee interval to the folder
+Lets see how we can only expose certain entries of the ConfigMap in our volume
+#+begin_example
+volumes:
+- name: config
+  configMap:
+    name: fortune-config
+    items:
+    - key: my-nginx-config.conf
+      path: gzip.conf
+#+end_example
+Things to note:
+- We use the exact yaml we did before, we would just add the 3 lines from items down
+- Selecting which entries to include in the volume by listing them
+- We can list which part of the configmap we want
+- The path in our case will name the file gzip.conf in the container
+
+IMPORTANT NOTE:
+If you mount a file into a directory all other files that already existed in the directory becomes inaccessible
+This is normal linux mount, if you mount on a dir with files in it the files that was in the dir will not be visible only the new mounted ones
+
+You can get around it by mounting to a file instead of the directory and then exposing the content of that file with subpath
+Lets look at this example
+#+begin_example
+spec:
+  containers:
+  - image: some/image
+    volumeMounts:
+    - name: myvolume
+      mountPath: /etc/someconfig.conf
+      subPath: myconfig.conf
+#+end_example
+Things to note:
+- This change is made on the container level, not under volumes
+- The mountpath is into a file not the directory
+- Instead of mounting the whole volume you're only mounting the myconfig.conf entry
+
+Subpath can be used anytime you only want to mount part of a volume
+
+Permissions:
+- By defailt permissions on all files in a configMap volume are set to 644 (-rw-r--r--)
+- YOu can overwrite that with the defaultMode
+#+begin_example
+volumes:
+- name: config
+  configMap:
+    name: fortune-config
+    defaultMode: "6600"
+#+end_example
+
+Even though you can not update env vars on a running container 
+Updating content of a configmap that is exposed through a volume will update them in the running container
+
+You edit a configMap with
+I can not do it here as it will hang
+but I am going to do this outside and set gzip to off
+#+begin_example
+kubectl edit configmap fortune-config
+#+end_example
+
+Lets go see if it worked:
+#+begin_src shell :results raw 
+kubectl exec fortune-configmap-volume -c web-server -- cat /etc/nginx/conf.d/my-nginx-config.conf
+#+end_src
+
+#+RESULTS:
+server {
+  listen       80;
+  server_name  www.kubia-example.com;
+
+  gzip off;
+  gzip_types text/plain application/xml;
+
+  location / {
+    root   /usr/share/nginx/html;
+    index  index.html index.htm;
+  }
+}
+
+Nice, I can now signal nginx to reload so it will use the new config
+
+It is worth noting that the files in the configmap volume is just a symbolic link
+Lets check 
+#+begin_src shell :results raw
+kubectl exec fortune-configmap-volume -c web-server -- ls -Al /etc/nginx/conf.d/ 
+#+end_src
+
+#+RESULTS:
+total 4
+drwxr-xr-x    2 root     root          4096 Dec  2 19:28 ..2020_12_02_19_28_40.991028508
+lrwxrwxrwx    1 root     root            31 Dec  2 19:28 ..data -> ..2020_12_02_19_28_40.991028508
+lrwxrwxrwx    1 root     root            27 Dec  2 11:17 my-nginx-config.conf -> ..data/my-nginx-config.conf
+lrwxrwxrwx    1 root     root            21 Dec  2 11:17 sleep-interval -> ..data/sleep-interval
+
+everything links back to that 2020_12_02..... volume, when you update the configMap a new volume is created
+once created, all the symlinks are pointed to the new volume so all file updates happens at once
+
+IMPORTANT note, if we just mount the one file in, ie not sleep-interval 
+it is no longer possible to update that file while the pod is running
+
+** Secrets
+Secrets work much the same way as configMaps you can pass them in as environment var or mount it as a volume
+Every pod automatically gets a secret volume mounted
+Lets see what secrets our cluster has
+#+begin_src shell :restults raw
+kubectl get secrets
+#+end_src
+
+#+RESULTS:
+| NAME                | TYPE                                | DATA | AGE   |
+| default-token-xnktg | kubernetes.io/service-account-token |    3 | 104d  |
+| tls-secret          | kubernetes.io/tls                   |    2 | 7d21h |
+
+#+begin_src shell :results raw 
+kubectl describe secrets
+#+end_src
+
+#+RESULTS:
+Name:         default-token-xnktg
+Namespace:    default
+Labels:       <none>
+Annotations:  kubernetes.io/service-account.name: default
+              kubernetes.io/service-account.uid: a26bc979-e7e6-406a-8ee1-9f1034f579da
+
+Type:  kubernetes.io/service-account-token
+
+Data
+====
+ca.crt:     1066 bytes
+namespace:  7 bytes
+token:      eyJhbGciOiJSUzI1NiIsImtpZCI6IkFHVzF2R19sR21VU1hzblhVc2kzNlpiMTVjVERESjF1ZDdickJFUUVGMVUifQ.eyJpc3MiOiJrdWJlcm5ldGVzL3NlcnZpY2VhY2NvdW50Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9uYW1lc3BhY2UiOiJkZWZhdWx0Iiwia3ViZXJuZXRlcy5pby9zZXJ2aWNlYWNjb3VudC9zZWNyZXQubmFtZSI6ImRlZmF1bHQtdG9rZW4teG5rdGciLCJrdWJlcm5ldGVzLmlvL3NlcnZpY2VhY2NvdW50L3NlcnZpY2UtYWNjb3VudC5uYW1lIjoiZGVmYXVsdCIsImt1YmVybmV0ZXMuaW8vc2VydmljZWFjY291bnQvc2VydmljZS1hY2NvdW50LnVpZCI6ImEyNmJjOTc5LWU3ZTYtNDA2YS04ZWUxLTlmMTAzNGY1NzlkYSIsInN1YiI6InN5c3RlbTpzZXJ2aWNlYWNjb3VudDpkZWZhdWx0OmRlZmF1bHQifQ.dhYTL5VcYfIzvSldnlrRkzrGv9umaftkA0mGu-5ti8fjQh4qOYCZ9OcORW7EOQ5tTzVEOpaJ9HVaKjAQq5w4KH1_uOiVwAbwTWHNV9E-e2QMhP-VYN9wV3auuI1C9zooGEc5siiMlpZhtZeyCWYZ8kZUwU7a1ncZYdxP1hfErgObdcngZiJl5EWhBTU7sRwdKoZs6829JA7SvCX1PXoaQIHqaD-WHadKPhYKhIaONunBUTahWcQLZfQL3_B8jhY6Vh2pGWJyap1XeMa94XLZRce3-G4UZ7a7xDj6Pzj499eZYzBL5SaNGW2bRfhAhup82h0TQ3JiZD9ZL1ymLYj1ew
+
+
+Name:         tls-secret
+Namespace:    default
+Labels:       <none>
+Annotations:  <none>
+
+Type:  kubernetes.io/tls
+
+Data
+====
+tls.crt:  997 bytes
+tls.key:  1679 bytes
+
+Lets describe the pod see if we can find where secrets get mounted
+#+begin_src shell :results raw 
+kubectl describe po 
+#+end_src
+
+#+RESULTS:
+Name:         dnsutils
+Namespace:    default
+Priority:     0
+Node:         minikube/192.168.64.2
+Start Time:   Mon, 30 Nov 2020 11:04:27 +1300
+Labels:       run=dnsutils
+Annotations:  <none>
+Status:       Running
+IP:           172.17.0.8
+IPs:
+  IP:  172.17.0.8
+Containers:
+  dnsutils:
+    Container ID:  docker://02b50a94a163a2e2b345a090a5a778388c64240e29befe13593ec7a8f4036f99
+    Image:         tutum/dnsutils
+    Image ID:      docker-pullable://tutum/dnsutils@sha256:d2244ad47219529f1003bd1513f5c99e71655353a3a63624ea9cb19f8393d5fe
+    Port:          <none>
+    Host Port:     <none>
+    Command:
+      sleep
+      infinity
+    State:          Running
+      Started:      Mon, 30 Nov 2020 11:04:44 +1300
+    Ready:          True
+    Restart Count:  0
+    Environment:    <none>
+    Mounts:
+      /var/run/secrets/kubernetes.io/serviceaccount from default-token-xnktg (ro)
+Conditions:
+  Type              Status
+  ....................etc
+
+Notice the mount there for the service account secrets?
+
+Lets go see what is in that volume
+#+begin_src shell :results raw
+kubectl exec dnsutils -- ls /var/run/secrets/kubernetes.io/serviceaccount 
+#+end_src
+
+#+RESULTS:
+ca.crt
+namespace
+token
+
+Ahhh all the files needed for secure connection, nice
+
+ok lets go create our own secrets
+#+begin_src shell :restults raw 
+echo bar > secrets/foo
+echo we learning > secrets/anotherSecret
+#+end_src
+
+#+RESULTS:
+
+
+#+begin_src shell :results raw 
+kubectl create secret generic my-super-secret --from-file=secrets/foo --from-file=secrets/anotherSecret
+#+end_src
+
+#+RESULTS:
+: secret/my-super-secret created
+
+Aite lets describe it
+#+begin_src shell :results raw 
+kubectl get secret my-super-secret -o yaml
+#+end_src
+
+#+RESULTS:
+apiVersion: v1
+data:
+  anotherSecret: d2UgbGVhcm5pbmcK
+  foo: YmFyCg==
+kind: Secret
+metadata:
+  creationTimestamp: "2020-12-02T22:28:02Z"
+  managedFields:
+  - apiVersion: v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:data:
+        .: {}
+        f:anotherSecret: {}
+        f:foo: {}
+      f:type: {}
+    manager: kubectl
+    operation: Update
+    time: "2020-12-02T22:28:02Z"
+  name: my-super-secret
+  namespace: default
+  resourceVersion: "1290869"
+  selfLink: /api/v1/namespaces/default/secrets/my-super-secret
+  uid: 706aeed2-d968-4968-a395-ed1b7d64b370
+type: Opaque
+
+Notice the data is Base64-encoded, this makes all content of secrets even if it includes binary data compatible with yaml
+
+I am lazy and dont feel like setting all of this up, but here is an example of using secrets to mount them into my web server
+if you are inspired go through 7.5.3 on page 217
+#+begin_example
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fortune-https
+spec:
+  containers:
+  - image: luksa/fortune:env
+    name: html-generator
+    env:
+    - name: INTERVAL
+      valueFrom:
+        configMapKeyRef:
+          name: fortune-config
+          key: sleep-interval
+    volumeMounts:
+    - name: html
+      mountPath: /var/htdocs
+  - image: nginx:alpine
+    name: web-server
+    volumeMounts:
+    - name: html
+      mountPath: /usr/share/nginx/html
+      readOnly: true
+    - name: config
+      mountPath: /etc/nginx/conf.d
+      readOnly: true
+    - name: certs
+      mountPath: /etc/nginx/certs/
+      readOnly: true
+    ports:
+    - containerPort: 80
+  - containerPort: 443
+volumes:
+- name: html
+  emptyDir: {}
+- name: config
+  configMap:
+    name: fortune-config
+    items:
+    - key: my-nginx-config.conf
+      path: https.conf
+- name: certs
+secret:
+    secretName: fortune-https
+#+end_example
+Things to notice
+- Nginx will read the cert and key file from /etc/nginx/certs, so you need to mount the Secret volume there.
+- You define the secret volume at the bottom under volumes, this will refer to the fortune-https Secret.
+
+Same as with ConfigMaps secrets can be passed in as env vars
+#+begin_example
+env:
+- name: FOO_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: fortune-https
+      key: foo
+#+end_example
+Things to notice
+- The variable should be set from the entry of a seret, ie secretKeyRef
+- You pass in the name of the secret and of course the key
+
+One thing to be careful of, if you pass a secret in as a env var it might very well end up in logs if there is ever a error dump
+
+Got down to 7.5.6 Understanding image pull Secrets
