@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: downward-volume
+  labels:
+    foo: bar
+  annotations:
+    key1: value1
+    key2: |
+      multi
+      line
+      value
+spec:
+  containers:
+  - name: main
+    image: busybox
+    command: ["sleep", "999999"]
+    volumeMounts:
+    - name: downward-vol
+      mountpath: /etc/downward
+volumes:
+- name: downward-vol
+  downwardAPI:
+    items:
+    - path: "podName"
+      fieldRef:
+        fieldPath: metadata.name
+    - path: "podNamespace"
+      fieldRef:
+        fieldPath: metadata.namespece
+    - path: "labels"
+      fieldRef:
+        fieldPath: metadata.labels
+    - path: "annotations"
+      fieldRef:
+        fieldPath: metadata.anotations
