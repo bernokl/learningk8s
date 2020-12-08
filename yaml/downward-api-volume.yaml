@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: downward-volume
+  name: downward-vol
   labels:
     foo: bar
   annotations:
@@ -14,23 +14,28 @@ spec:
   containers:
   - name: main
     image: busybox
-    command: ["sleep", "999999"]
+    command: ["sleep", "9999999"]
     volumeMounts:
-    - name: downward-vol
-      mountpath: /etc/downward
-volumes:
-- name: downward-vol
-  downwardAPI:
-    items:
-    - path: "podName"
-      fieldRef:
-        fieldPath: metadata.name
-    - path: "podNamespace"
-      fieldRef:
-        fieldPath: metadata.namespece
-    - path: "labels"
-      fieldRef:
-        fieldPath: metadata.labels
-    - path: "annotations"
-      fieldRef:
-        fieldPath: metadata.anotations
+    - name: downward
+      mountPath: /etc/downward
+  volumes:
+  - name: downward
+    downwardAPI:
+      items:
+      - path: "podName"
+        fieldRef:
+          fieldPath: metadata.name
+      - path: "podNamespace"
+        fieldRef:
+          fieldPath: metadata.namespace
+      - path: "labels"
+        fieldRef:
+          fieldPath: metadata.labels
+      - path: "annotations"
+        fieldRef:
+          fieldPath: metadata.annotations
+      - path: "containerCpuRequestMilliCores"
+        resourceFieldRef:
+          containerName: main
+          resource: requests.cpu
+          divisor: 1m
