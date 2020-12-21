@@ -1,0 +1,224 @@
+This is quick overview of what docker is
+
+Lets go over a few practical things, Org allows literate programming and that means I can run the commands right in my documentation
+Here is a quick example:
+#+begin_src shell :results raw
+pwd
+#+end_src
+
+#+RESULTS:
+/Users/bernokl/projects/learndocker
+Hello world
+
+The second neat thing we can do is to tangel a block of code into a file
+#+begin_src yaml :tangle test/example.txt
+Here is a file we tangled
+You can create full bash scripts here
+#+end_src
+
+Lets confirm
+#+begin_src shell :results raw
+cat example.txt
+#+end_src
+
+#+RESULTS:
+total 8
+drwxr-xr-x  3 bernokl  staff   96 Dec 18 06:34 .
+drwxr-xr-x  6 bernokl  staff  192 Dec 18 06:34 ..
+-rw-r--r--  1 bernokl  staff   64 Dec 18 06:34 example.txt
+
+* Lets tie things together by creating a very simple container, push it to my dockerhub registry and then run it.
+
+First I am going to create a very simple nodejs app that I can run in a container
+#+begin_src nodejs :tangle app.js
+const http = require('http');
+const os = require('os');
+console.log("Kubia server starting...");
+var handler = function(request, response) {
+  console.log("Received request from " + request.connection.remoteAddress);
+  response.writeHead(200);
+  response.end("You've hit " + os.hostname() + "\n");
+};
+var www = http.createServer(handler);
+www.listen(8080);
+#+end_src
+
+Lets package it with a working environment and see what we get
+#+begin_src yaml :tangle Dockerfile 
+FROM node:7
+ADD app.js /app.js
+ENTRYPOINT ["node", "app.js"]
+#+end_src
+
+Lets use the docker build command to create our docker image
+#+begin_src shell :results raw
+docker build -t kubia .
+#+end_src
+
+#+RESULTS:
+Sending build context to Docker daemon  8.704kB
+Step 1/3 : FROM node:7
+7: Pulling from library/node
+ad74af05f5a2: Pulling fs layer
+2b032b8bbe8b: Pulling fs layer
+a9a5b35f6ead: Pulling fs layer
+3245b5a1c52c: Pulling fs layer
+afa075743392: Pulling fs layer
+9fb9f21641cd: Pulling fs layer
+3f40ad2666bc: Pulling fs layer
+49c0ed396b49: Pulling fs layer
+9fb9f21641cd: Waiting
+3245b5a1c52c: Waiting
+afa075743392: Waiting
+3f40ad2666bc: Waiting
+49c0ed396b49: Waiting
+2b032b8bbe8b: Verifying Checksum
+2b032b8bbe8b: Download complete
+a9a5b35f6ead: Verifying Checksum
+a9a5b35f6ead: Download complete
+afa075743392: Verifying Checksum
+afa075743392: Download complete
+9fb9f21641cd: Verifying Checksum
+9fb9f21641cd: Download complete
+ad74af05f5a2: Verifying Checksum
+ad74af05f5a2: Download complete
+ad74af05f5a2: Pull complete
+2b032b8bbe8b: Pull complete
+49c0ed396b49: Verifying Checksum
+49c0ed396b49: Download complete
+3f40ad2666bc: Verifying Checksum
+3f40ad2666bc: Download complete
+a9a5b35f6ead: Pull complete
+3245b5a1c52c: Verifying Checksum
+3245b5a1c52c: Download complete
+3245b5a1c52c: Pull complete
+afa075743392: Pull complete
+9fb9f21641cd: Pull complete
+3f40ad2666bc: Pull complete
+49c0ed396b49: Pull complete
+Digest: sha256:af5c2c6ac8bc3fa372ac031ef60c45a285eeba7bce9ee9ed66dad3a01e29ab8d
+Status: Downloaded newer image for node:7
+ ---> d9aed20b68a4
+Step 2/3 : ADD app.js /app.js
+ ---> 94cfad03b7e4
+Step 3/3 : ENTRYPOINT ["node", "app.js"]
+ ---> Running in 0334b13f4020
+Removing intermediate container 0334b13f4020
+ ---> d0b5d6875f52
+Successfully built d0b5d6875f52
+Successfully tagged kubia:latest
+
+Lets look if we can see the docker image
+#+begin_src shell :results raw
+docker images
+#+end_src
+
+#+RESULTS:
+REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
+kubia               latest              d0b5d6875f52        28 seconds ago      660MB
+busybox             latest              219ee5171f80        13 days ago         1.23MB
+kindest/node        <none>              de6eb7df13da        7 months ago        1.25GB
+registry            2                   708bc6af7e5e        10 months ago       25.8MB
+node                7                   d9aed20b68a4        3 years ago         660MB
+
+Lets start a container with the kubia image
+#+begin_src shell :results raw
+docker run --name kubia-container -p 8080:8080 -d kubia
+#+end_src
+
+#+RESULTS:
+c02276287546ec2750ca16e2ada5743af6276ddc7b0f81db56cf8df0f5df55e5
+
+Lets see if we see it run
+#+begin_src shell :results raw
+docker ps
+#+end_src
+
+#+RESULTS:
+CONTAINER ID        IMAGE                  COMMAND                  CREATED             STATUS              PORTS                       NAMES
+c02276287546        kubia                  "node app.js"            6 seconds ago       Up 4 seconds        0.0.0.0:8080->8080/tcp      kubia-container
+d96626cc5b51        kindest/node:v1.18.2   "/usr/local/bin/entr…"   4 weeks ago         Up 4 weeks          127.0.0.1:60280->6443/tcp   kind-control-plane
+0c237ee211ee        registry:2             "/entrypoint.sh /etc…"   8 months ago        Up 4 weeks          0.0.0.0:5000->5000/tcp      local-registry
+
+d96626cc5b51        kindest/node:v1.18.2   "/usr/local/bin/entr…"   4 weeks ago         Up 4 weeks          127.0.0.1:60280->6443/tcp   kind-control-plane
+0c237ee211ee        registry:2             "/entrypoint.sh /etc…"   8 months ago        Up 4 weeks          0.0.0.0:5000->5000/tcp      local-registry
+
+Now lets see if we can hit our container
+#+begin_src shell :results raw
+curl localhost:8080
+#+end_src
+
+#+RESULTS:
+You've hit c02276287546
+
+Lets inspect our container
+#+begin_src shell :results raw
+docker inspect kubia-container
+#+end_src
+
+Lets go exploring inside the running container
+#+begin_src shell :results raw
+docker exec -it kubia-container bash
+#+end_src
+
+Lets clean up what we did by stopping and removing the container
+#+begin_src shell :results raw
+docker stop kubia-container
+docker rm kubia-container
+#+end_src
+
+#+RESULTS:
+kubia-container
+kubia-container
+
+Last steps, lets build and push our container to my registry
+#+begin_src shell :results raw
+docker tag kubia bernokl/kubia
+#+end_src
+
+#+RESULTS:
+
+Did our images change?
+#+begin_src shell :results raw
+docker images
+#+end_src
+
+#+RESULTS:
+REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
+bernokl/kubia       latest              d0b5d6875f52        17 minutes ago      660MB
+kubia               latest              d0b5d6875f52        17 minutes ago      660MB
+busybox             latest              219ee5171f80        13 days ago         1.23MB
+kindest/node        <none>              de6eb7df13da        7 months ago        1.25GB
+registry            2                   708bc6af7e5e        10 months ago       25.8MB
+node                7                   d9aed20b68a4        3 years ago         660MB
+
+Push image to our repo so others can use it
+#+begin_src shell :results raw
+docker push bernokl/kubia
+#+end_src
+
+#+RESULTS:
+The push refers to repository [docker.io/bernokl/kubia]
+870f509b5634: Preparing
+ab90d83fa34a: Preparing
+8ee318e54723: Preparing
+e6695624484e: Preparing
+da59b99bbd3b: Preparing
+5616a6292c16: Preparing
+f3ed6cb59ab0: Preparing
+654f45ecb7e3: Preparing
+2c40c66f7667: Preparing
+5616a6292c16: Waiting
+f3ed6cb59ab0: Waiting
+2c40c66f7667: Waiting
+654f45ecb7e3: Waiting
+ab90d83fa34a: Layer already exists
+8ee318e54723: Layer already exists
+da59b99bbd3b: Layer already exists
+e6695624484e: Layer already exists
+2c40c66f7667: Layer already exists
+f3ed6cb59ab0: Layer already exists
+654f45ecb7e3: Layer already exists
+5616a6292c16: Layer already exists
+870f509b5634: Pushed
+latest: digest: sha256:4af325e7355f57e325278fc29b7833c10c82e979004be87cb03295c3dfc5b794 size: 2213
