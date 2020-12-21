@@ -1,6 +1,6 @@
-This is quick overview of what docker is
+** This is quick overview of what docker is
 
-Lets go over a few practical things, Org allows literate programming and that means I can run the commands right in my documentation
+*** Lets go over a few practical things, Org allows literate programming and that means I can run the commands right in my documentation
 Here is a quick example:
 #+begin_src shell :results raw
 pwd
@@ -10,7 +10,7 @@ pwd
 /Users/bernokl/projects/learndocker
 Hello world
 
-The second neat thing we can do is to tangel a block of code into a file
+*** The second neat thing we can do is to tangel a block of code into a file
 #+begin_src yaml :tangle test/example.txt
 Here is a file we tangled
 You can create full bash scripts here
@@ -230,7 +230,7 @@ Aite, added the footnotes below, lets try to tangle it out the plan is to hit ",
 
 * Footnotes
 
-#+REVEAL_ROOT: https://cdn.jsdelivr.net/npm/reveal.js
+#+REVEAL_ROOT: https://cdnjs.cloudflare.com/ajax/libs/reveal.js/3.9.2
 # #+REVEAL_TITLE_SLIDE:
 #+NOREVEAL_DEFAULT_FRAG_STYLE: YY
 #+NOREVEAL_EXTRA_CSS: YY
@@ -240,7 +240,7 @@ Aite, added the footnotes below, lets try to tangle it out the plan is to hit ",
 #+REVEAL_WIDTH: 1000
 #+REVEAL_HEIGHT: 600
 #+REVEAL_MAX_SCALE: 3.5
-#+REVEAL_MIN_SCALE: 0.2
+#+REVEAL_MIN_SCALE: 1.0
 #+REVEAL_PLUGINS: (markdown notes highlight multiplex)
 #+REVEAL_SLIDE_NUMBER: ""
 #+REVEAL_SPEED: 1
