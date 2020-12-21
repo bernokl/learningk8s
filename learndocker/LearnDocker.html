@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<meta name="author" content="Berno"/>
+<meta name="author" content="Riaan Kleinhans"/>
 <style type="text/css">
 .underline { text-decoration: underline; }
 </style>
@@ -26,18 +26,18 @@
 <div class="reveal">
 <div class="slides">
 <section id="sec-title-slide">
-<h2 class="author">Berno</h2><p class="date">Created: 2020-12-21 Mon 20:27</p>
+<h2 class="author">Riaan Kleinhans</h2><p class="date">Created: 2020-12-22 Tue 03:21</p>
 </section>
 </section>
 </section>
 <section>
-<section id="slide-org3001689">
-<h3 id="org3001689">This is quick overview of what docker is</h3>
-<div class="outline-text-3" id="text-org3001689">
+<section id="slide-org7a4bc3f">
+<h3 id="org7a4bc3f">This is quick overview of what docker is</h3>
+<div class="outline-text-3" id="text-org7a4bc3f">
 </div>
 </section>
-<section id="slide-org2faa6d0">
-<h4 id="org2faa6d0">Lets go over a few practical things, Org allows literate programming and that means I can run the commands right in my documentation</h4>
+<section id="slide-orge499137">
+<h4 id="orge499137">Lets go over a few practical things, Org allows literate programming and that means I can run the commands right in my documentation</h4>
 <p>
 Here is a quick example:
 </p>
@@ -47,14 +47,9 @@ Here is a quick example:
 </code></pre>
 </div>
 
-<p>
-/Users/bernokl/projects/learndocker
-Hello world
-</p>
-
 </section>
-<section id="slide-org06f2be5">
-<h4 id="org06f2be5">The second neat thing we can do is to tangel a block of code into a file</h4>
+<section id="slide-org6d8bd6c">
+<h4 id="org6d8bd6c">The second neat thing we can do is to tangel a block of code into a file</h4>
 <div class="org-src-container">
 
 <pre><code class="yaml" >Here is a file we tangled
@@ -62,30 +57,28 @@ You can create full bash scripts here
 </code></pre>
 </div>
 
-<p>
-Lets confirm
-</p>
+</section>
+<section id="slide-orgf10e13d">
+<h4 id="orgf10e13d">Lets confirm</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >cat example.txt
 </code></pre>
 </div>
 
-<p>
-total 8
-drwxr-xr-x  3 bernokl  staff   96 Dec 18 06:34 .
-drwxr-xr-x  6 bernokl  staff  192 Dec 18 06:34 ..
--rw-r&#x2013;r&#x2013;  1 bernokl  staff   64 Dec 18 06:34 example.txt
-</p>
-
 </section>
 </section>
 <section>
-<section id="slide-org1413d76">
-<h2 id="org1413d76">Lets tie things together by creating a very simple container, push it to my dockerhub registry and then run it.</h2>
+<section id="slide-orgbb4f4ea">
+<h2 id="orgbb4f4ea">Lets tie things together</h2>
 <p>
-First I am going to create a very simple nodejs app that I can run in a container
+We will be creating a very simple container.
+We will  push it to my dockerhub registry and then run it.
 </p>
+
+</section>
+<section id="slide-org584c534">
+<h4 id="org584c534">First I am going to create a very simple nodejs app that I can run in a container</h4>
 <div class="org-src-container">
 
 <pre><code class="nodejs" >const http = require('http');
@@ -101,9 +94,9 @@ www.listen(8080);
 </code></pre>
 </div>
 
-<p>
-Lets package it with a working environment and see what we get
-</p>
+</section>
+<section id="slide-org3179cb1">
+<h4 id="org3179cb1">Lets package it with a working environment and see what we get</h4>
 <div class="org-src-container">
 
 <pre><code class="yaml" >FROM node:7
@@ -112,155 +105,77 @@ ENTRYPOINT ["node", "app.js"]
 </code></pre>
 </div>
 
-<p>
-Lets use the docker build command to create our docker image
-</p>
+</section>
+<section id="slide-org3961eef">
+<h4 id="org3961eef">Lets use the docker build command to create our docker image</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >docker build -t kubia .
 </code></pre>
 </div>
 
-<p>
-Sending build context to Docker daemon  8.704kB
-Step 1/3 : FROM node:7
-7: Pulling from library/node
-ad74af05f5a2: Pulling fs layer
-2b032b8bbe8b: Pulling fs layer
-a9a5b35f6ead: Pulling fs layer
-3245b5a1c52c: Pulling fs layer
-afa075743392: Pulling fs layer
-9fb9f21641cd: Pulling fs layer
-3f40ad2666bc: Pulling fs layer
-49c0ed396b49: Pulling fs layer
-9fb9f21641cd: Waiting
-3245b5a1c52c: Waiting
-afa075743392: Waiting
-3f40ad2666bc: Waiting
-49c0ed396b49: Waiting
-2b032b8bbe8b: Verifying Checksum
-2b032b8bbe8b: Download complete
-a9a5b35f6ead: Verifying Checksum
-a9a5b35f6ead: Download complete
-afa075743392: Verifying Checksum
-afa075743392: Download complete
-9fb9f21641cd: Verifying Checksum
-9fb9f21641cd: Download complete
-ad74af05f5a2: Verifying Checksum
-ad74af05f5a2: Download complete
-ad74af05f5a2: Pull complete
-2b032b8bbe8b: Pull complete
-49c0ed396b49: Verifying Checksum
-49c0ed396b49: Download complete
-3f40ad2666bc: Verifying Checksum
-3f40ad2666bc: Download complete
-a9a5b35f6ead: Pull complete
-3245b5a1c52c: Verifying Checksum
-3245b5a1c52c: Download complete
-3245b5a1c52c: Pull complete
-afa075743392: Pull complete
-9fb9f21641cd: Pull complete
-3f40ad2666bc: Pull complete
-49c0ed396b49: Pull complete
-Digest: sha256:af5c2c6ac8bc3fa372ac031ef60c45a285eeba7bce9ee9ed66dad3a01e29ab8d
-Status: Downloaded newer image for node:7
- &#x2014;&gt; d9aed20b68a4
-Step 2/3 : ADD app.js /app.js
- &#x2014;&gt; 94cfad03b7e4
-Step 3/3 : ENTRYPOINT ["node", "app.js"]
- &#x2014;&gt; Running in 0334b13f4020
-Removing intermediate container 0334b13f4020
- &#x2014;&gt; d0b5d6875f52
-Successfully built d0b5d6875f52
-Successfully tagged kubia:latest
-</p>
 
-<p>
-Lets look if we can see the docker image
-</p>
+</section>
+<section id="slide-org4d91286">
+<h4 id="org4d91286">Lets look if we can see the docker image</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >docker images
 </code></pre>
 </div>
 
-<p>
-REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
-kubia               latest              d0b5d6875f52        28 seconds ago      660MB
-busybox             latest              219ee5171f80        13 days ago         1.23MB
-kindest/node        &lt;none&gt;              de6eb7df13da        7 months ago        1.25GB
-registry            2                   708bc6af7e5e        10 months ago       25.8MB
-node                7                   d9aed20b68a4        3 years ago         660MB
-</p>
 
-<p>
-Lets start a container with the kubia image
-</p>
+</section>
+<section id="slide-org917fe2c">
+<h4 id="org917fe2c">Lets start a container with the kubia image</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >docker run --name kubia-container -p 8080:8080 -d kubia
 </code></pre>
 </div>
 
-<p>
-c02276287546ec2750ca16e2ada5743af6276ddc7b0f81db56cf8df0f5df55e5
-</p>
 
-<p>
-Lets see if we see it run
-</p>
+</section>
+<section id="slide-org45182d0">
+<h4 id="org45182d0">Lets see if we see it run</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >docker ps
 </code></pre>
 </div>
 
-<p>
-CONTAINER ID        IMAGE                  COMMAND                  CREATED             STATUS              PORTS                       NAMES
-c02276287546        kubia                  "node app.js"            6 seconds ago       Up 4 seconds        0.0.0.0:8080-&gt;8080/tcp      kubia-container
-d96626cc5b51        kindest/node:v1.18.2   "/usr/local/bin/entr…"   4 weeks ago         Up 4 weeks          127.0.0.1:60280-&gt;6443/tcp   kind-control-plane
-0c237ee211ee        registry:2             "/entrypoint.sh /etc…"   8 months ago        Up 4 weeks          0.0.0.0:5000-&gt;5000/tcp      local-registry
-</p>
 
-<p>
-d96626cc5b51        kindest/node:v1.18.2   "/usr/local/bin/entr…"   4 weeks ago         Up 4 weeks          127.0.0.1:60280-&gt;6443/tcp   kind-control-plane
-0c237ee211ee        registry:2             "/entrypoint.sh /etc…"   8 months ago        Up 4 weeks          0.0.0.0:5000-&gt;5000/tcp      local-registry
-</p>
-
-<p>
-Now lets see if we can hit our container
-</p>
+</section>
+<section id="slide-org41912e8">
+<h4 id="org41912e8">Now lets see if we can hit our container</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >curl localhost:8080
 </code></pre>
 </div>
 
-<p>
-You've hit c02276287546
-</p>
 
-<p>
-Lets inspect our container
-</p>
+</section>
+<section id="slide-orgdd385e5">
+<h4 id="orgdd385e5">Lets inspect our container</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >docker inspect kubia-container
 </code></pre>
 </div>
 
-<p>
-Lets go exploring inside the running container
-</p>
+</section>
+<section id="slide-org4448c55">
+<h4 id="org4448c55">Lets go exploring inside the running container</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >docker exec -it kubia-container bash
 </code></pre>
 </div>
 
-<p>
-Lets clean up what we did by stopping and removing the container
-</p>
+</section>
+<section id="slide-org111c224">
+<h4 id="org111c224">Lets clean up what we did by stopping and removing the container</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >docker stop kubia-container
@@ -268,80 +183,42 @@ docker rm kubia-container
 </code></pre>
 </div>
 
-<p>
-kubia-container
-kubia-container
-</p>
 
-<p>
-Last steps, lets build and push our container to my registry
-</p>
+</section>
+<section id="slide-org117df94">
+<h4 id="org117df94">Last steps, lets build and push our container to my registry</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >docker tag kubia bernokl/kubia
 </code></pre>
 </div>
 
-<p>
-Did our images change?
-</p>
+
+</section>
+<section id="slide-orge81e22e">
+<h4 id="orge81e22e">Did our images change?</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >docker images
 </code></pre>
 </div>
 
-<p>
-REPOSITORY          TAG                 IMAGE ID            CREATED             SIZE
-bernokl/kubia       latest              d0b5d6875f52        17 minutes ago      660MB
-kubia               latest              d0b5d6875f52        17 minutes ago      660MB
-busybox             latest              219ee5171f80        13 days ago         1.23MB
-kindest/node        &lt;none&gt;              de6eb7df13da        7 months ago        1.25GB
-registry            2                   708bc6af7e5e        10 months ago       25.8MB
-node                7                   d9aed20b68a4        3 years ago         660MB
-</p>
 
-<p>
-Push image to our repo so others can use it
-</p>
+</section>
+<section id="slide-org8cebb38">
+<h4 id="org8cebb38">Push image to our repo so others can use it</h4>
 <div class="org-src-container">
 
 <pre><code class="shell" >docker push bernokl/kubia
 </code></pre>
 </div>
 
-<p>
-The push refers to repository [docker.io/bernokl/kubia]
-870f509b5634: Preparing
-ab90d83fa34a: Preparing
-8ee318e54723: Preparing
-e6695624484e: Preparing
-da59b99bbd3b: Preparing
-5616a6292c16: Preparing
-f3ed6cb59ab0: Preparing
-654f45ecb7e3: Preparing
-2c40c66f7667: Preparing
-5616a6292c16: Waiting
-f3ed6cb59ab0: Waiting
-2c40c66f7667: Waiting
-654f45ecb7e3: Waiting
-ab90d83fa34a: Layer already exists
-8ee318e54723: Layer already exists
-da59b99bbd3b: Layer already exists
-e6695624484e: Layer already exists
-2c40c66f7667: Layer already exists
-f3ed6cb59ab0: Layer already exists
-654f45ecb7e3: Layer already exists
-5616a6292c16: Layer already exists
-870f509b5634: Pushed
-latest: digest: sha256:4af325e7355f57e325278fc29b7833c10c82e979004be87cb03295c3dfc5b794 size: 2213
-</p>
 
 </section>
 </section>
 <section>
-<section id="slide-orgf59f9d2">
-<h2 id="orgf59f9d2">Lets see if we can make this into a presentation</h2>
+<section id="slide-orgc8a35f1">
+<h2 id="orgc8a35f1">Lets see if we can make this into a presentation</h2>
 <p>
 The theory is that this file gets a footnotes to set up reveal things
 Aite, added the footnotes below, lets try to tangle it out the plan is to hit ", e e v b"
